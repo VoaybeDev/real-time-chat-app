@@ -369,6 +369,35 @@
   font-size: 0.85rem;
   opacity: 0.85;
   text-decoration: underline;
+}/* ── USER ITEM AVEC MESSAGES NON LUS ────────────────────────────── */
+.user-item.has-unread {
+  background: linear-gradient(135deg, #f5f0ff, #ede9fe);
+  border-left: 3px solid #7c3aed;
+  position: relative;
+}
+
+.user-item.has-unread:hover {
+  background: linear-gradient(135deg, #ede9fe, #ddd6fe);
+}
+
+.user-item.has-unread.selected {
+  background: linear-gradient(135deg, #ddd6fe, #c4b5fd);
+  border-left: 3px solid #6d28d9;
+}
+
+.user-name-bold {
+  font-weight: 700 !important;
+  color: #4c1d95 !important;
+}
+
+.preview-unread {
+  color: #5b21b6 !important;
+  font-weight: 600 !important;
+}
+
+.time-unread {
+  color: #7c3aed !important;
+  font-weight: 700 !important;
 }
 /* ═══════════════════════════════════════════════════════════════
    📱 MOBILE
