@@ -5,24 +5,23 @@ import { useVoiceMessage } from '../../hooks/useVoiceMessage';
 import MessageBubble from './MessageBubble';
 import './Chat.css';
 
-const ChatWindow = ({ selectedUser, messages, onlineUsers, onStartCall }) => {
-  const { user } = useAuth();
+const SERVER_URL = process.env.REACT_APP_SERVER_URL || 'http://localhost:5000';
+
+const ChatWindow = ({ selectedUser, messages, onlineUsers, onStartCall, onBack, showBackButton }) => {
+  const { user }   = useAuth();
   const { socket } = useSocket();
   const [text,      setText]      = useState('');
   const [isTyping,  setIsTyping]  = useState(false);
   const [showVoice, setShowVoice] = useState(false);
   const messagesEndRef = useRef(null);
   const typingTimerRef = useRef(null);
-
   const voice = useVoiceMessage();
   const isOnline = onlineUsers.includes(selectedUser._id);
 
-  // Scroll vers le bas à chaque nouveau message
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Écouter le typing
   useEffect(() => {
     if (!socket) return;
     socket.on('typing:start', ({ userId }) => {
@@ -37,7 +36,6 @@ const ChatWindow = ({ selectedUser, messages, onlineUsers, onStartCall }) => {
     };
   }, [socket, selectedUser]);
 
-  // Envoyer message texte
   const sendMessage = (e) => {
     e.preventDefault();
     if (!text.trim()) return;
@@ -50,21 +48,21 @@ const ChatWindow = ({ selectedUser, messages, onlineUsers, onStartCall }) => {
     socket?.emit('typing:stop', { receiverId: selectedUser._id });
   };
 
-  // Envoyer message vocal
   const sendVoiceMessage = async () => {
     if (!voice.audioBlob) return;
     const formData = new FormData();
     formData.append('audio', voice.audioBlob, 'voice-message.webm');
     formData.append('receiverId', selectedUser._id);
-
     try {
-      const res = await fetch('http://localhost:5000/api/messages/voice', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-        body: formData,
-      });
+      const res = await fetch(`${SERVER_URL}/api/messages/voice`, {
+  method: 'POST',
+  headers: {
+    Authorization: `Bearer ${localStorage.getItem('token')}`,
+    'ngrok-skip-browser-warning': 'true',  // ← ajoute cette ligne
+  },
+  body: formData,
+});
       const data = await res.json();
-      // Notifier via socket
       socket?.emit('message:send', {
         receiverId: selectedUser._id,
         content: '',
@@ -78,7 +76,6 @@ const ChatWindow = ({ selectedUser, messages, onlineUsers, onStartCall }) => {
     }
   };
 
-  // Gestion du typing
   const handleTextChange = (e) => {
     setText(e.target.value);
     socket?.emit('typing:start', { receiverId: selectedUser._id });
@@ -88,11 +85,22 @@ const ChatWindow = ({ selectedUser, messages, onlineUsers, onStartCall }) => {
     }, 1500);
   };
 
+  // Handler unifié touch + click pour les boutons d'appel
+  const handleCall = (type) => (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onStartCall(type);
+  };
+
   return (
     <div className="chat-window">
       {/* Header */}
       <div className="chat-header">
         <div className="chat-user-info">
+          {/* Bouton retour mobile */}
+          {showBackButton && (
+            <button className="back-btn" onClick={onBack}>←</button>
+          )}
           <div className="chat-avatar">{selectedUser.username[0].toUpperCase()}</div>
           <div>
             <h3>{selectedUser.username}</h3>
@@ -103,16 +111,17 @@ const ChatWindow = ({ selectedUser, messages, onlineUsers, onStartCall }) => {
         </div>
 
         <div className="call-buttons">
+          {/* onPointerDown pour compatibilité mobile */}
           <button
             className="call-btn audio"
-            onClick={() => onStartCall('audio')}
+            onPointerDown={handleCall('audio')}
             title="Appel vocal"
           >
             📞
           </button>
           <button
             className="call-btn video"
-            onClick={() => onStartCall('video')}
+            onPointerDown={handleCall('video')}
             title="Appel vidéo"
           >
             📹
@@ -146,32 +155,22 @@ const ChatWindow = ({ selectedUser, messages, onlineUsers, onStartCall }) => {
           {voice.isRecording ? (
             <div className="recording-active">
               <div className="rec-dot" />
-              <span>{voice.formatDuration(voice.duration)}</span>
-              <button onClick={voice.stopRecording} className="stop-rec-btn">
-                ⏹ Arrêter
-              </button>
-              <button onClick={voice.cancelRecording} className="cancel-rec-btn">
-                ✕
-              </button>
+              <span className="rec-timer">{voice.formatDuration(voice.duration)}</span>
+              <button onPointerDown={voice.stopRecording} className="stop-rec-btn">⏹ Stop</button>
+              <button onPointerDown={voice.cancelRecording} className="cancel-rec-btn">✕</button>
             </div>
           ) : voice.audioUrl ? (
             <div className="audio-preview">
-              <audio src={voice.audioUrl} controls />
-              <button onClick={sendVoiceMessage} className="send-voice-btn">
-                ➤ Envoyer
-              </button>
-              <button onClick={voice.cancelRecording} className="cancel-rec-btn">
-                ✕ Annuler
-              </button>
+              <audio src={voice.audioUrl} controls className="audio-preview-player" />
+              <button onPointerDown={sendVoiceMessage} className="send-voice-btn">➤ Envoyer</button>
+              <button onPointerDown={voice.cancelRecording} className="cancel-rec-btn">✕</button>
             </div>
           ) : (
             <div className="start-recording">
-              <button onClick={voice.startRecording} className="start-rec-btn">
-                🎤 Démarrer l'enregistrement
+              <button onPointerDown={voice.startRecording} className="start-rec-btn">
+                🎤 Enregistrer
               </button>
-              <button onClick={() => setShowVoice(false)} className="cancel-rec-btn">
-                ✕
-              </button>
+              <button onPointerDown={() => setShowVoice(false)} className="cancel-rec-btn">✕</button>
             </div>
           )}
         </div>
@@ -182,8 +181,7 @@ const ChatWindow = ({ selectedUser, messages, onlineUsers, onStartCall }) => {
         <button
           type="button"
           className={`voice-toggle-btn ${showVoice ? 'active' : ''}`}
-          onClick={() => setShowVoice(!showVoice)}
-          title="Message vocal"
+          onPointerDown={() => setShowVoice(!showVoice)}
         >
           🎤
         </button>
@@ -194,9 +192,7 @@ const ChatWindow = ({ selectedUser, messages, onlineUsers, onStartCall }) => {
           onChange={handleTextChange}
           className="text-input"
         />
-        <button type="submit" className="send-btn" disabled={!text.trim()}>
-          ➤
-        </button>
+        <button type="submit" className="send-btn" disabled={!text.trim()}>➤</button>
       </form>
     </div>
   );

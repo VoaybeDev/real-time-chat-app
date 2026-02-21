@@ -4,7 +4,8 @@ import axios from 'axios';
 const AuthContext = createContext();
 
 axios.defaults.baseURL = process.env.REACT_APP_SERVER_URL || 'http://localhost:5000';
-
+axios.defaults.headers.common['ngrok-skip-browser-warning'] = 'true';
+axios.defaults.headers.common['Accept'] = 'application/json';
 export const AuthProvider = ({ children }) => {
   const [user,    setUser]    = useState(null);
   const [token,   setToken]   = useState(() => localStorage.getItem('token'));

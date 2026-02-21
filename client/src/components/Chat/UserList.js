@@ -1,6 +1,6 @@
 import './Chat.css';
 
-const UserList = ({ users, onlineUsers, selectedUser, onSelectUser }) => {
+const UserList = ({ users = [], onlineUsers = [], selectedUser, onSelectUser }) => {
   return (
     <div className="user-list">
       <h3 className="user-list-title">Messages</h3>
@@ -30,5 +30,7 @@ const UserList = ({ users, onlineUsers, selectedUser, onSelectUser }) => {
     </div>
   );
 };
+
+
 
 export default UserList;
