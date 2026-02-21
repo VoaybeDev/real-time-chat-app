@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SocketProvider } from './context/SocketContext';
+import { ToastProvider } from './components/UI/Toast';
 import Login from './components/Auth/Login';
 import Register from './components/Auth/Register';
 import ChatLayout from './components/Chat/ChatLayout';
@@ -11,8 +12,9 @@ const AppContent = () => {
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontSize: '1.5rem' }}>
-        ⏳ Chargement...
+      <div className="loading-screen">
+        <div className="loading-logo gradient-text">💬 ChatApp</div>
+        <div className="loading-spinner" />
       </div>
     );
   }
@@ -31,9 +33,11 @@ const AppContent = () => {
 };
 
 const App = () => (
-  <AuthProvider>
-    <AppContent />
-  </AuthProvider>
+  <ToastProvider>
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
+  </ToastProvider>
 );
 
 export default App;

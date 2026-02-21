@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useSocket } from '../../context/SocketContext';
 import { useAuth } from '../../context/AuthContext';
 import { useWebRTC } from '../../hooks/useWebRTC';
+import { useToast } from '../UI/Toast';
 import UserList from './UserList';
 import ChatWindow from './ChatWindow';
 import CallModal from '../Call/CallModal';
@@ -12,20 +13,24 @@ import './Chat.css';
 const ChatLayout = () => {
   const { user, logout } = useAuth();
   const { socket, onlineUsers } = useSocket();
-  const [users,        setUsers]        = useState([]);
+  const { showToast } = useToast();
+
+  const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
-  const [messages,     setMessages]     = useState([]);
+  const [messages, setMessages] = useState([]);
   const [incomingCall, setIncomingCall] = useState(null);
-  const [showSidebar,  setShowSidebar]  = useState(true); // ← mobile nav
+  const [showSidebar, setShowSidebar] = useState(true);
+  const [unreadCounts, setUnreadCounts] = useState({}); // { userId: count }
+  const [lastMessages, setLastMessages] = useState({}); // { userId: message }
 
   const webrtc = useWebRTC(socket);
-
-  // Sur mobile : afficher la sidebar par défaut, cacher quand conv sélectionnée
   const isMobile = () => window.innerWidth <= 768;
 
   const handleSelectUser = (u) => {
     setSelectedUser(u);
-    if (isMobile()) setShowSidebar(false); // ← cache sidebar sur mobile
+    // Reset unread count for this user
+    setUnreadCounts((prev) => ({ ...prev, [u._id]: 0 }));
+    if (isMobile()) setShowSidebar(false);
   };
 
   const handleBack = () => {
@@ -33,6 +38,7 @@ const ChatLayout = () => {
     setSelectedUser(null);
   };
 
+  // Load users
   useEffect(() => {
     const fetchUsers = async () => {
       const { data } = await axios.get('/api/auth/users');
@@ -41,6 +47,7 @@ const ChatLayout = () => {
     fetchUsers();
   }, []);
 
+  // Load message history
   useEffect(() => {
     if (!selectedUser) return;
     const fetchMessages = async () => {
@@ -50,40 +57,59 @@ const ChatLayout = () => {
     fetchMessages();
   }, [selectedUser]);
 
+  // Listen to socket events
   useEffect(() => {
     if (!socket) return;
 
     socket.on('message:receive', (message) => {
-      if (
-        selectedUser &&
-        (message.sender?._id === selectedUser._id || message.sender === selectedUser._id)
-      ) {
+      const senderId = message.sender?._id || message.sender;
+
+      // Update last message
+      setLastMessages((prev) => ({ ...prev, [senderId]: message }));
+
+      if (selectedUser && senderId === selectedUser._id) {
         setMessages((prev) => [...prev, message]);
+      } else {
+        // Increment unread message count
+        setUnreadCounts((prev) => ({
+          ...prev,
+          [senderId]: (prev[senderId] || 0) + 1,
+        }));
       }
     });
 
     socket.on('message:sent', (message) => {
       setMessages((prev) => [...prev, message]);
+      const receiverId = message.receiver?._id || message.receiver;
+      setLastMessages((prev) => ({ ...prev, [receiverId]: message }));
     });
 
+    // Handle calls
     socket.on('call:incoming', ({ callerId, callType, offer }) => {
       const caller = users.find((u) => u._id === callerId);
-      setIncomingCall({
-        callerId, callType, offer,
-        callerName: caller?.username || 'Inconnu'
-      });
+      const callerName = caller?.username || 'Inconnu';
+      setIncomingCall({ callerId, callType, offer, callerName });
       webrtc.setCallerId(callerId);
       webrtc.setCallType(callType);
       webrtc.setCallStatus('receiving');
     });
 
-    socket.on('call:answered',      webrtc.handleCallAnswered);
+    socket.on('call:answered', webrtc.handleCallAnswered);
     socket.on('call:ice-candidate', webrtc.handleICECandidate);
-    socket.on('call:ended',   () => webrtc.endCall());
-    socket.on('call:rejected', () => { webrtc.endCall(); alert('Appel refusé'); });
+
+    socket.on('call:ended', () => {
+      webrtc.endCall();
+      showToast({ title: 'Appel terminé', type: 'info' });
+    });
+
+    socket.on('call:rejected', () => {
+      webrtc.endCall();
+      showToast({ title: 'Appel refusé', message: 'L\'utilisateur a refusé l\'appel', type: 'error' });
+    });
+
     socket.on('call:unavailable', () => {
       webrtc.endCall();
-      alert('Utilisateur non disponible ou hors ligne');
+      showToast({ title: 'Utilisateur indisponible', message: 'Impossible de joindre l\'utilisateur', type: 'warning' });
     });
 
     return () => {
@@ -96,15 +122,16 @@ const ChatLayout = () => {
       socket.off('call:rejected');
       socket.off('call:unavailable');
     };
-  }, [socket, selectedUser, users, webrtc]);
+  }, [socket, selectedUser, users, webrtc, showToast]);
 
   const handleAcceptCall = useCallback(() => {
     if (incomingCall) {
       webrtc.answerCall(incomingCall.callerId, incomingCall.offer, incomingCall.callType);
-      // Sur mobile : naviguer vers la conv de l'appelant
       const caller = users.find((u) => u._id === incomingCall.callerId);
-      if (caller) setSelectedUser(caller);
-      if (isMobile()) setShowSidebar(false);
+      if (caller) {
+        setSelectedUser(caller);
+        if (isMobile()) setShowSidebar(false);
+      }
       setIncomingCall(null);
     }
   }, [incomingCall, webrtc, users]);
@@ -118,13 +145,12 @@ const ChatLayout = () => {
 
   return (
     <div className="chat-layout">
-
-      {/* ── SIDEBAR ── */}
+      {/* Sidebar */}
       <div className={`sidebar ${showSidebar ? 'sidebar-visible' : 'sidebar-hidden'}`}>
         <div className="sidebar-header">
           <div className="user-info">
-            <div className="avatar">{user?.username?.[0]?.toUpperCase()}</div>
-            <span className="username">{user?.username}</span>
+            <div className="avatar gradient-bg">{user?.username?.[0]?.toUpperCase()}</div>
+            <span className="username gradient-text">{user?.username}</span>
           </div>
           <button onClick={logout} className="logout-btn" title="Déconnexion">⏻</button>
         </div>
@@ -134,10 +160,22 @@ const ChatLayout = () => {
           onlineUsers={onlineUsers}
           selectedUser={selectedUser}
           onSelectUser={handleSelectUser}
+          unreadCounts={unreadCounts}
+          lastMessages={lastMessages}
         />
+
+        {/* Signature */}
+        <a
+          href="https://github.com/VoaybeDev"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="signature"
+        >
+          Built by VoaybeDev
+        </a>
       </div>
 
-      {/* ── CHAT WINDOW ── */}
+      {/* Main Content */}
       <div className={`main-content ${!showSidebar ? 'main-full' : ''}`}>
         {selectedUser ? (
           <ChatWindow
@@ -145,19 +183,20 @@ const ChatLayout = () => {
             messages={messages}
             onlineUsers={onlineUsers}
             onStartCall={(type) => webrtc.startCall(selectedUser._id, type)}
-            onBack={handleBack}          // ← bouton retour mobile
-            showBackButton={!showSidebar} // ← visible seulement sur mobile
+            onBack={handleBack}
+            showBackButton={!showSidebar}
+            showToast={showToast}
           />
         ) : (
           <div className="no-chat">
             <div className="no-chat-icon">💬</div>
-            <h2>Sélectionnez une conversation</h2>
+            <h2 className="gradient-text">Sélectionnez une conversation</h2>
             <p>Choisissez un utilisateur pour commencer</p>
           </div>
         )}
       </div>
 
-      {/* ── MODALS ── */}
+      {/* Modals */}
       {(webrtc.callStatus === 'calling' || webrtc.callStatus === 'in-call') && (
         <CallModal
           callType={webrtc.callType}
