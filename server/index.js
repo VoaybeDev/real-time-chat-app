@@ -187,7 +187,8 @@ io.on("connection", async (socket) => {
     io.emit("users:online", Array.from(onlineUsers.keys()));
   });
 });
-
+app.get("/", (req, res) => res.status(200).send("OK"));
+app.get("/health", (req, res) => res.status(200).json({ ok: true }));
 /**
  * ========= START =========
  */
