@@ -28,40 +28,23 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const init = async () => {
-      // Aucun token => pas d'appel /me
-      if (!token) {
-        delete axios.defaults.headers.common['Authorization'];
-        setUser(null);
-        setLoading(false);
-        return;
-      }
-
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-
       try {
-        const { data } = await axios.get('/api/auth/me');
-        setUser(data.user);
-      } catch (e) {
+        if (token) {
+          axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+          const { data } = await axios.get('/api/auth/me');
+          setUser(data.user);
+        }
+      } catch {
         logout();
       } finally {
         setLoading(false);
       }
     };
-
     init();
   }, [token, logout]);
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        token,
-        login,
-        logout,
-        loading,
-        isAuthenticated: !!token,
-      }}
-    >
+    <AuthContext.Provider value={{ user, token, login, logout, loading, isAuthenticated: !!token }}>
       {children}
     </AuthContext.Provider>
   );

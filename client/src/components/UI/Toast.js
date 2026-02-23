@@ -15,12 +15,13 @@ export const ToastProvider = ({ children }) => {
     }, duration);
   }, []);
 
-  const removeToast = (id) => setToasts((prev) => prev.filter((t) => t.id !== id));
+  const removeToast = useCallback((id) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
 
   return (
     <ToastContext.Provider value={{ showToast }}>
       {children}
-
       <div className="toast-container">
         {toasts.map((t) => (
           <div key={t.id} className={`toast toast-${t.type}`}>
@@ -33,7 +34,7 @@ export const ToastProvider = ({ children }) => {
             </div>
 
             <div className="toast-content">
-              {t.title && <strong className="toast-title">{t.title}</strong>}
+              {t.title   && <strong className="toast-title">{t.title}</strong>}
               {t.message && <span className="toast-message">{t.message}</span>}
             </div>
 
