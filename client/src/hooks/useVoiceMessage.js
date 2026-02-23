@@ -1,160 +1,157 @@
 import { useRef, useState, useCallback } from 'react';
 
-const ICE_SERVERS = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-  ],
+// Détecte le bon format audio selon le navigateur/OS
+const getSupportedMimeType = () => {
+  const types = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/ogg;codecs=opus',
+    'audio/ogg',
+    'audio/mp4',
+    '',
+  ];
+  return types.find((t) => !t || MediaRecorder.isTypeSupported(t)) || '';
 };
 
-export const useWebRTC = (socket) => {
-  const [localStream, setLocalStream] = useState(null);
-  const [remoteStream, setRemoteStream] = useState(null);
-  const [callStatus, setCallStatus] = useState('idle'); // idle | calling | receiving | in-call
-  const [callType, setCallType] = useState(null); // audio | video
-  const [callerId, setCallerId] = useState(null);
-  const [targetId, setTargetId] = useState(null);
+export const useVoiceMessage = () => {
+  const [isRecording, setIsRecording] = useState(false);
+  const [audioBlob, setAudioBlob] = useState(null);
+  const [audioUrl, setAudioUrl] = useState(null);
+  const [duration, setDuration] = useState(0);
 
-  const pcRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const chunksRef = useRef([]);
+  const timerRef = useRef(null);
+  const startTimeRef = useRef(null);
 
-  const cleanupPC = useCallback(() => {
-    if (pcRef.current) {
-      pcRef.current.ontrack = null;
-      pcRef.current.onicecandidate = null;
-      pcRef.current.onconnectionstatechange = null;
-      pcRef.current.close();
-      pcRef.current = null;
-    }
-  }, []);
-
-  const endCall = useCallback((remoteTargetId = null) => {
-    const target = remoteTargetId || targetId;
-    if (target) socket?.emit('call:end', { targetId: target });
-
-    cleanupPC();
-    localStream?.getTracks().forEach((t) => t.stop());
-
-    setLocalStream(null);
-    setRemoteStream(null);
-    setCallStatus('idle');
-    setCallType(null);
-    setCallerId(null);
-    setTargetId(null);
-  }, [socket, targetId, localStream, cleanupPC]);
-
-  const getLocalStream = useCallback(async (type) => {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-      video: type === 'video',
+  // Fix bug durée 0s sur Chrome/mobile
+  const fixBlobDuration = (blob) => {
+    return new Promise((resolve) => {
+      const audio = new Audio();
+      audio.src = URL.createObjectURL(blob);
+      audio.addEventListener('loadedmetadata', () => {
+        if (audio.duration === Infinity || isNaN(audio.duration)) {
+          audio.currentTime = 1e101;
+          audio.addEventListener('timeupdate', function handler() {
+            this.removeEventListener('timeupdate', handler);
+            URL.revokeObjectURL(audio.src);
+            resolve(blob);
+          });
+        } else {
+          URL.revokeObjectURL(audio.src);
+          resolve(blob);
+        }
+      });
     });
-    setLocalStream(stream);
-    return stream;
-  }, []);
+  };
 
-  const createPeerConnection = useCallback((stream, remoteTargetId) => {
-    cleanupPC();
-    const pc = new RTCPeerConnection(ICE_SERVERS);
+  const startRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          sampleRate: 44100,
+        },
+      });
 
-    stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+      const mimeType = getSupportedMimeType();
+      const options = mimeType ? { mimeType } : {};
 
-    const remoteMediaStream = new MediaStream();
-    setRemoteStream(remoteMediaStream);
-
-    pc.ontrack = (e) => {
-      e.streams[0].getTracks().forEach((track) => remoteMediaStream.addTrack(track));
-    };
-
-    pc.onicecandidate = (e) => {
-      if (e.candidate && remoteTargetId) {
-        socket?.emit('call:ice-candidate', { targetId: remoteTargetId, candidate: e.candidate });
+      let recorder;
+      try {
+        recorder = new MediaRecorder(stream, options);
+      } catch {
+        recorder = new MediaRecorder(stream);
       }
-    };
 
-    pc.onconnectionstatechange = () => {
-      if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
-        endCall(remoteTargetId);
+      chunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        const elapsed = Math.round((Date.now() - startTimeRef.current) / 1000);
+        setDuration(elapsed);
+
+        const mType = recorder.mimeType || 'audio/webm';
+        const blob = new Blob(chunksRef.current, { type: mType });
+
+        fixBlobDuration(blob).then((fixedBlob) => {
+          const url = URL.createObjectURL(fixedBlob);
+          setAudioBlob(fixedBlob);
+          setAudioUrl(url);
+        });
+
+        stream.getTracks().forEach((t) => t.stop());
+      };
+
+      recorder.start(100);
+      mediaRecorderRef.current = recorder;
+      startTimeRef.current = Date.now();
+
+      setIsRecording(true);
+      setDuration(0);
+      setAudioBlob(null);
+      setAudioUrl(null);
+
+      timerRef.current = setInterval(() => {
+        setDuration(Math.round((Date.now() - startTimeRef.current) / 1000));
+      }, 1000);
+    } catch (err) {
+      console.error('Erreur microphone:', err);
+      if (err?.name === 'NotAllowedError') {
+        alert("❌ Accès au micro refusé.\nSur mobile, il faut HTTPS.");
+      } else if (err?.name === 'NotFoundError') {
+        alert('❌ Aucun microphone détecté.');
+      } else {
+        alert(`❌ Erreur microphone : ${err?.message || 'inconnue'}`);
       }
-    };
-
-    pcRef.current = pc;
-    return pc;
-  }, [socket, cleanupPC, endCall]);
-
-  const startCall = useCallback(async (receiverId, type = 'audio') => {
-    try {
-      setCallType(type);
-      setTargetId(receiverId);
-      setCallStatus('calling');
-
-      const stream = await getLocalStream(type);
-      const pc = createPeerConnection(stream, receiverId);
-
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-
-      socket?.emit('call:initiate', { receiverId, callType: type, offer });
-    } catch (err) {
-      console.error('Erreur démarrage appel:', err);
-      setCallStatus('idle');
-    }
-  }, [socket, getLocalStream, createPeerConnection]);
-
-  const answerCall = useCallback(async (incomingCallerId, offer, type = 'audio') => {
-    try {
-      setCallStatus('in-call');
-      setTargetId(incomingCallerId);
-
-      const stream = await getLocalStream(type);
-      const pc = createPeerConnection(stream, incomingCallerId);
-
-      await pc.setRemoteDescription(new RTCSessionDescription(offer));
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-
-      socket?.emit('call:answer', { callerId: incomingCallerId, answer });
-    } catch (err) {
-      console.error('Erreur réponse appel:', err);
-      setCallStatus('idle');
-    }
-  }, [socket, getLocalStream, createPeerConnection]);
-
-  const handleCallAnswered = useCallback(async ({ answer }) => {
-    try {
-      await pcRef.current?.setRemoteDescription(new RTCSessionDescription(answer));
-      setCallStatus('in-call');
-    } catch (err) {
-      console.error('Erreur set remote description:', err);
     }
   }, []);
 
-  const handleICECandidate = useCallback(async ({ candidate }) => {
-    try {
-      await pcRef.current?.addIceCandidate(new RTCIceCandidate(candidate));
-    } catch (err) {
-      console.error('Erreur ajout ICE candidate:', err);
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current?.state === 'recording') {
+      mediaRecorderRef.current.stop();
     }
+    clearInterval(timerRef.current);
+    setIsRecording(false);
   }, []);
 
-  const rejectCall = useCallback((incomingCallerId) => {
-    socket?.emit('call:reject', { callerId: incomingCallerId });
-    setCallStatus('idle');
-    setCallerId(null);
-  }, [socket]);
+  const cancelRecording = useCallback(() => {
+    if (mediaRecorderRef.current?.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    }
+    chunksRef.current = [];
+    clearInterval(timerRef.current);
+    setIsRecording(false);
+    setAudioBlob(null);
+    setAudioUrl(null);
+    setDuration(0);
+  }, []);
 
-  const toggleMic = useCallback(() => {
-    localStream?.getAudioTracks().forEach((t) => { t.enabled = !t.enabled; });
-  }, [localStream]);
+  const resetAudio = useCallback(() => {
+    setAudioBlob(null);
+    setAudioUrl(null);
+    setDuration(0);
+  }, []);
 
-  const toggleCamera = useCallback(() => {
-    localStream?.getVideoTracks().forEach((t) => { t.enabled = !t.enabled; });
-  }, [localStream]);
+  const formatDuration = (s) => {
+    const m = Math.floor(s / 60).toString().padStart(2, '0');
+    const sec = (s % 60).toString().padStart(2, '0');
+    return `${m}:${sec}`;
+  };
 
   return {
-    localStream, remoteStream, callStatus, callType, callerId, targetId,
-    setCallStatus, setCallType, setCallerId,
-    startCall, answerCall, rejectCall, endCall,
-    handleCallAnswered, handleICECandidate,
-    toggleMic, toggleCamera,
+    isRecording,
+    audioBlob,
+    audioUrl,
+    duration,
+    startRecording,
+    stopRecording,
+    cancelRecording,
+    resetAudio,
+    formatDuration,
   };
 };
