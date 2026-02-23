@@ -1,16 +1,16 @@
-import { useRef, useState, useCallback } from 'react';
+import { useRef, useState, useCallback } from "react";
 
 // Détecte le bon format audio selon le navigateur/OS
 const getSupportedMimeType = () => {
   const types = [
-    'audio/webm;codecs=opus',
-    'audio/webm',
-    'audio/ogg;codecs=opus',
-    'audio/ogg',
-    'audio/mp4',
-    '',
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/ogg;codecs=opus",
+    "audio/ogg",
+    "audio/mp4",
+    "",
   ];
-  return types.find((t) => !t || MediaRecorder.isTypeSupported(t)) || '';
+  return types.find((t) => !t || MediaRecorder.isTypeSupported(t)) || "";
 };
 
 export const useVoiceMessage = () => {
@@ -24,21 +24,26 @@ export const useVoiceMessage = () => {
   const timerRef = useRef(null);
   const startTimeRef = useRef(null);
 
-  // Fix bug durée 0s sur Chrome/mobile
   const fixBlobDuration = (blob) => {
     return new Promise((resolve) => {
       const audio = new Audio();
-      audio.src = URL.createObjectURL(blob);
-      audio.addEventListener('loadedmetadata', () => {
-        if (audio.duration === Infinity || isNaN(audio.duration)) {
+      const tmpUrl = URL.createObjectURL(blob);
+      audio.src = tmpUrl;
+
+      audio.addEventListener("loadedmetadata", () => {
+        if (audio.duration === Infinity || Number.isNaN(audio.duration)) {
           audio.currentTime = 1e101;
-          audio.addEventListener('timeupdate', function handler() {
-            this.removeEventListener('timeupdate', handler);
-            URL.revokeObjectURL(audio.src);
-            resolve(blob);
-          });
+          audio.addEventListener(
+            "timeupdate",
+            function handler() {
+              audio.removeEventListener("timeupdate", handler);
+              URL.revokeObjectURL(tmpUrl);
+              resolve(blob);
+            },
+            { once: true }
+          );
         } else {
-          URL.revokeObjectURL(audio.src);
+          URL.revokeObjectURL(tmpUrl);
           resolve(blob);
         }
       });
@@ -75,7 +80,7 @@ export const useVoiceMessage = () => {
         const elapsed = Math.round((Date.now() - startTimeRef.current) / 1000);
         setDuration(elapsed);
 
-        const mType = recorder.mimeType || 'audio/webm';
+        const mType = recorder.mimeType || "audio/webm";
         const blob = new Blob(chunksRef.current, { type: mType });
 
         fixBlobDuration(blob).then((fixedBlob) => {
@@ -100,19 +105,13 @@ export const useVoiceMessage = () => {
         setDuration(Math.round((Date.now() - startTimeRef.current) / 1000));
       }, 1000);
     } catch (err) {
-      console.error('Erreur microphone:', err);
-      if (err?.name === 'NotAllowedError') {
-        alert("❌ Accès au micro refusé.\nSur mobile, il faut HTTPS.");
-      } else if (err?.name === 'NotFoundError') {
-        alert('❌ Aucun microphone détecté.');
-      } else {
-        alert(`❌ Erreur microphone : ${err?.message || 'inconnue'}`);
-      }
+      console.error("Erreur microphone:", err);
+      alert("❌ Impossible d’accéder au microphone (HTTPS obligatoire sur mobile).");
     }
   }, []);
 
   const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current?.state === 'recording') {
+    if (mediaRecorderRef.current?.state === "recording") {
       mediaRecorderRef.current.stop();
     }
     clearInterval(timerRef.current);
@@ -120,7 +119,7 @@ export const useVoiceMessage = () => {
   }, []);
 
   const cancelRecording = useCallback(() => {
-    if (mediaRecorderRef.current?.state === 'recording') {
+    if (mediaRecorderRef.current?.state === "recording") {
       mediaRecorderRef.current.stop();
     }
     chunksRef.current = [];
@@ -138,8 +137,8 @@ export const useVoiceMessage = () => {
   }, []);
 
   const formatDuration = (s) => {
-    const m = Math.floor(s / 60).toString().padStart(2, '0');
-    const sec = (s % 60).toString().padStart(2, '0');
+    const m = Math.floor(s / 60).toString().padStart(2, "0");
+    const sec = (s % 60).toString().padStart(2, "0");
     return `${m}:${sec}`;
   };
 
@@ -155,3 +154,6 @@ export const useVoiceMessage = () => {
     formatDuration,
   };
 };
+
+// ✅ rend l'import compatible avec:  import useVoiceMessage from ...
+export default useVoiceMessage;
