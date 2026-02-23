@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 
 const AuthContext = createContext();
@@ -6,43 +6,62 @@ const AuthContext = createContext();
 axios.defaults.baseURL = process.env.REACT_APP_SERVER_URL || 'http://localhost:5000';
 axios.defaults.headers.common['ngrok-skip-browser-warning'] = 'true';
 axios.defaults.headers.common['Accept'] = 'application/json';
+
 export const AuthProvider = ({ children }) => {
-  const [user,    setUser]    = useState(null);
-  const [token,   setToken]   = useState(() => localStorage.getItem('token'));
+  const [user, setUser] = useState(null);
+  const [token, setToken] = useState(() => localStorage.getItem('token'));
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const init = async () => {
-      if (token) {
-        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-        try {
-          const { data } = await axios.get('/api/auth/me');
-          setUser(data.user);
-        } catch {
-          logout();
-        }
-      }
-      setLoading(false);
-    };
-    init();
-  }, []);
-
-  const login = (userData, userToken) => {
-    setToken(userToken);
-    setUser(userData);
-    localStorage.setItem('token', userToken);
-    axios.defaults.headers.common['Authorization'] = `Bearer ${userToken}`;
-  };
-
-  const logout = () => {
+  const logout = useCallback(() => {
     setToken(null);
     setUser(null);
     localStorage.removeItem('token');
     delete axios.defaults.headers.common['Authorization'];
-  };
+  }, []);
+
+  const login = useCallback((userData, userToken) => {
+    setToken(userToken);
+    setUser(userData);
+    localStorage.setItem('token', userToken);
+    axios.defaults.headers.common['Authorization'] = `Bearer ${userToken}`;
+  }, []);
+
+  useEffect(() => {
+    const init = async () => {
+      // Aucun token => pas d'appel /me
+      if (!token) {
+        delete axios.defaults.headers.common['Authorization'];
+        setUser(null);
+        setLoading(false);
+        return;
+      }
+
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+
+      try {
+        const { data } = await axios.get('/api/auth/me');
+        setUser(data.user);
+      } catch (e) {
+        logout();
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    init();
+  }, [token, logout]);
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, loading, isAuthenticated: !!token }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        token,
+        login,
+        logout,
+        loading,
+        isAuthenticated: !!token,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

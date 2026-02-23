@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, createContext, useContext } from 'react';
+import { useState, useCallback, createContext, useContext } from 'react';
 import './Toast.css';
 
 const ToastContext = createContext();
@@ -9,6 +9,7 @@ export const ToastProvider = ({ children }) => {
   const showToast = useCallback(({ title, message, type = 'info', duration = 4000 }) => {
     const id = Date.now();
     setToasts((prev) => [...prev, { id, title, message, type }]);
+
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, duration);
@@ -19,6 +20,7 @@ export const ToastProvider = ({ children }) => {
   return (
     <ToastContext.Provider value={{ showToast }}>
       {children}
+
       <div className="toast-container">
         {toasts.map((t) => (
           <div key={t.id} className={`toast toast-${t.type}`}>
@@ -29,10 +31,12 @@ export const ToastProvider = ({ children }) => {
               {t.type === 'info'    && 'ℹ️'}
               {t.type === 'call'    && '📞'}
             </div>
+
             <div className="toast-content">
-              {t.title   && <strong className="toast-title">{t.title}</strong>}
-              {t.message && <span  className="toast-message">{t.message}</span>}
+              {t.title && <strong className="toast-title">{t.title}</strong>}
+              {t.message && <span className="toast-message">{t.message}</span>}
             </div>
+
             <button className="toast-close" onClick={() => removeToast(t.id)}>✕</button>
           </div>
         ))}
