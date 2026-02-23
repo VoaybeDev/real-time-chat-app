@@ -15,21 +15,19 @@ const app = express();
 const server = http.createServer(app);
 
 /**
- * ========= CORS ORIGINS =========
+ * ========= CORS =========
  * En prod: CLIENT_URL = https://ton-frontend.vercel.app
  * En local: http://localhost:3000
  */
 const allowedOrigins = [
-  process.env.CLIENT_URL,
+  process.env.CLIENT_URL, // ex: https://real-time-chat-app-xxx.vercel.app
   "http://localhost:3000",
-  "https://localhost:3000",
-].filter(Boolean);
+];
 
 const corsOptions = {
   origin(origin, cb) {
     // Autorise les requêtes sans origin (Postman / curl)
     if (!origin) return cb(null, true);
-
     if (allowedOrigins.includes(origin)) return cb(null, true);
     return cb(new Error(`CORS bloqué pour origin: ${origin}`));
   },
@@ -42,8 +40,7 @@ app.use(express.json());
 
 /**
  * ========= UPLOADS =========
- * Railway: système de fichiers potentiellement éphémère, ok pour MVP.
- * Tu peux rediriger via UPLOAD_DIR plus tard.
+ * Railway: FS éphémère -> ok pour MVP.
  */
 const baseUploadDir = process.env.UPLOAD_DIR
   ? path.resolve(process.env.UPLOAD_DIR)
@@ -57,29 +54,29 @@ if (!fs.existsSync(uploadsFiles)) fs.mkdirSync(uploadsFiles, { recursive: true }
 
 app.use("/uploads", express.static(baseUploadDir));
 
+/**
+ * ========= ROUTES =========
+ */
 app.use("/api/auth", require("./routes/auth"));
 app.use("/api/messages", require("./routes/messages"));
 
 /**
- * ========= SOCKET.IO =========
+ * ========= HEALTH / ROOT =========
  */
-const io = new Server(server, {
-  cors: corsOptions,
-});
+app.get("/", (req, res) => res.status(200).send("API is running ✅"));
+app.get("/health", (req, res) => res.status(200).json({ ok: true }));
 
 /**
- * ========= DB =========
+ * ========= SOCKET.IO =========
  */
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ MongoDB connecté"))
-  .catch((err) => console.error("❌ MongoDB erreur:", err));
+const io = new Server(server, { cors: corsOptions });
 
 const onlineUsers = new Map();
 
 io.use((socket, next) => {
   const token = socket.handshake.auth?.token;
   if (!token) return next(new Error("Non autorisé"));
+
   try {
     const { userId } = jwt.verify(token, process.env.JWT_SECRET);
     socket.userId = userId;
@@ -123,18 +120,6 @@ io.on("connection", async (socket) => {
       console.error("❌ message:send error:", err?.message || err);
       socket.emit("error", { message: "Erreur envoi message" });
     }
-  });
-
-  socket.on("message:forward", (message) => {
-    const receiverId =
-      message.receiver && message.receiver._id
-        ? String(message.receiver._id)
-        : String(message.receiver);
-
-    const receiverSocketId = onlineUsers.get(receiverId);
-    if (receiverSocketId) io.to(receiverSocketId).emit("message:receive", message);
-
-    socket.emit("message:sent", message);
   });
 
   socket.on("typing:start", ({ receiverId }) => {
@@ -187,8 +172,15 @@ io.on("connection", async (socket) => {
     io.emit("users:online", Array.from(onlineUsers.keys()));
   });
 });
-app.get("/", (req, res) => res.status(200).send("OK"));
-app.get("/health", (req, res) => res.status(200).json({ ok: true }));
+
+/**
+ * ========= DB =========
+ */
+mongoose
+  .connect(process.env.MONGO_URI)
+  .then(() => console.log("✅ MongoDB connecté"))
+  .catch((err) => console.error("❌ MongoDB erreur:", err));
+
 /**
  * ========= START =========
  */
