@@ -1,12 +1,13 @@
-import { useState } from 'react';
-import { useAuth } from '../../context/AuthContext';
-import axios from 'axios';
-import './Auth.css';
+// client/src/components/Auth/Login.js
+import { useState } from "react";
+import { useAuth } from "../../context/AuthContext";
+import { api } from "../../lib/api";
+import "./Auth.css";
 
 const Login = ({ onSwitch }) => {
   const { login } = useAuth();
-  const [form,    setForm]    = useState({ email: '', password: '' });
-  const [error,   setError]   = useState('');
+  const [form, setForm] = useState({ email: "", password: "" });
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleChange = (e) =>
@@ -14,13 +15,24 @@ const Login = ({ onSwitch }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
+    setError("");
     setLoading(true);
+
     try {
-      const { data } = await axios.post('/api/auth/login', form);
+      // ✅ IMPORTANT: utilise api (baseURL = HF)
+      const { data } = await api.post("/auth/login", form);
+
+      // attend { user, token }
+      if (!data?.user || !data?.token) {
+        console.error("Login response unexpected:", data);
+        setError("Réponse serveur invalide (user/token manquant)");
+        return;
+      }
+
       login(data.user, data.token);
     } catch (err) {
-      setError(err.response?.data?.message || 'Erreur de connexion');
+      console.error("LOGIN ERROR:", err?.response?.data || err?.message || err);
+      setError(err?.response?.data?.message || "Erreur de connexion");
     } finally {
       setLoading(false);
     }
@@ -46,6 +58,7 @@ const Login = ({ onSwitch }) => {
               value={form.email}
               onChange={handleChange}
               required
+              autoComplete="email"
             />
           </div>
 
@@ -58,17 +71,20 @@ const Login = ({ onSwitch }) => {
               value={form.password}
               onChange={handleChange}
               required
+              autoComplete="current-password"
             />
           </div>
 
           <button type="submit" className="auth-btn" disabled={loading}>
-            {loading ? 'Connexion...' : 'Se connecter'}
+            {loading ? "Connexion..." : "Se connecter"}
           </button>
         </form>
 
         <p className="auth-switch">
-          Pas encore de compte ?{' '}
-          <span onClick={onSwitch}>Créer un compte</span>
+          Pas encore de compte ?{" "}
+          <span onClick={onSwitch} role="button" tabIndex={0}>
+            Créer un compte
+          </span>
         </p>
       </div>
     </div>

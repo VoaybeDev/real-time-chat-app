@@ -4,12 +4,14 @@ import axios from "axios";
 const SERVER_URL = process.env.REACT_APP_SERVER_URL;
 
 if (!SERVER_URL) {
-  // ça te dira direct si Vercel n’a pas injecté la variable
-  console.error("❌ REACT_APP_SERVER_URL manquant dans le build Vercel");
+  // Ça aide à diagnostiquer si Vercel n'injecte pas la variable
+  console.warn("REACT_APP_SERVER_URL is missing in frontend build");
 }
 
 export const api = axios.create({
-  baseURL: `${SERVER_URL}/api`,
-  headers: { "Content-Type": "application/json" },
-  withCredentials: true,
+  baseURL: SERVER_URL ? `${SERVER_URL}/api` : "/api",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  withCredentials: true, // ok même si tu n'utilises pas cookies
 });

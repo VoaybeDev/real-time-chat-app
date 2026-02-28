@@ -1,12 +1,18 @@
-import { useState } from 'react';
-import { useAuth } from '../../context/AuthContext';
-import axios from 'axios';
-import './Auth.css';
+// client/src/components/Auth/Register.js
+import { useState } from "react";
+import { useAuth } from "../../context/AuthContext";
+import { api } from "../../lib/api";
+import "./Auth.css";
 
 const Register = ({ onSwitch }) => {
   const { login } = useAuth();
-  const [form,    setForm]    = useState({ username: '', email: '', password: '', confirm: '' });
-  const [error,   setError]   = useState('');
+  const [form, setForm] = useState({
+    username: "",
+    email: "",
+    password: "",
+    confirm: "",
+  });
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleChange = (e) =>
@@ -14,25 +20,37 @@ const Register = ({ onSwitch }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
+    setError("");
 
     if (form.password !== form.confirm) {
-      return setError('Les mots de passe ne correspondent pas');
+      setError("Les mots de passe ne correspondent pas");
+      return;
     }
     if (form.password.length < 6) {
-      return setError('Mot de passe minimum 6 caractères');
+      setError("Mot de passe minimum 6 caractères");
+      return;
     }
 
     setLoading(true);
     try {
-      const { data } = await axios.post('/api/auth/register', {
-        username: form.username,
-        email:    form.email,
+      // ✅ IMPORTANT: utilise api (baseURL = HF)
+      const { data } = await api.post("/auth/register", {
+        username: form.username.trim(),
+        email: form.email.trim(),
         password: form.password,
       });
+
+      // attend { user, token }
+      if (!data?.user || !data?.token) {
+        console.error("Register response unexpected:", data);
+        setError("Réponse serveur invalide (user/token manquant)");
+        return;
+      }
+
       login(data.user, data.token);
     } catch (err) {
-      setError(err.response?.data?.message || 'Erreur d\'inscription');
+      console.error("REGISTER ERROR:", err?.response?.data || err?.message || err);
+      setError(err?.response?.data?.message || "Erreur d'inscription");
     } finally {
       setLoading(false);
     }
@@ -59,6 +77,7 @@ const Register = ({ onSwitch }) => {
               onChange={handleChange}
               required
               minLength={3}
+              autoComplete="username"
             />
           </div>
 
@@ -71,6 +90,7 @@ const Register = ({ onSwitch }) => {
               value={form.email}
               onChange={handleChange}
               required
+              autoComplete="email"
             />
           </div>
 
@@ -83,6 +103,7 @@ const Register = ({ onSwitch }) => {
               value={form.password}
               onChange={handleChange}
               required
+              autoComplete="new-password"
             />
           </div>
 
@@ -95,17 +116,20 @@ const Register = ({ onSwitch }) => {
               value={form.confirm}
               onChange={handleChange}
               required
+              autoComplete="new-password"
             />
           </div>
 
           <button type="submit" className="auth-btn" disabled={loading}>
-            {loading ? 'Inscription...' : 'Créer le compte'}
+            {loading ? "Inscription..." : "Créer le compte"}
           </button>
         </form>
 
         <p className="auth-switch">
-          Déjà un compte ?{' '}
-          <span onClick={onSwitch}>Se connecter</span>
+          Déjà un compte ?{" "}
+          <span onClick={onSwitch} role="button" tabIndex={0}>
+            Se connecter
+          </span>
         </p>
       </div>
     </div>
