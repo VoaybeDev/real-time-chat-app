@@ -1,56 +1,38 @@
-// client/src/components/Auth/Register.js
 import { useState } from "react";
 import { useAuth } from "../../context/AuthContext";
-import { api } from "../../lib/api";
+import http from "../../api/http";
 import "./Auth.css";
 
 const Register = ({ onSwitch }) => {
   const { login } = useAuth();
-  const [form, setForm] = useState({
-    username: "",
-    email: "",
-    password: "",
-    confirm: "",
-  });
+  const [form, setForm] = useState({ username: "", email: "", password: "", confirm: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleChange = (e) =>
-    setForm({ ...form, [e.target.name]: e.target.value });
+  const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
 
-    if (form.password !== form.confirm) {
-      setError("Les mots de passe ne correspondent pas");
-      return;
-    }
-    if (form.password.length < 6) {
-      setError("Mot de passe minimum 6 caractères");
-      return;
-    }
+    if (form.password !== form.confirm) return setError("Les mots de passe ne correspondent pas");
+    if (form.password.length < 6) return setError("Mot de passe minimum 6 caractères");
 
     setLoading(true);
     try {
-      // ✅ IMPORTANT: utilise api (baseURL = HF)
-      const { data } = await api.post("/auth/register", {
-        username: form.username.trim(),
-        email: form.email.trim(),
-        password: form.password,
-      });
+      const payload = { username: form.username, email: form.email, password: form.password };
 
-      // attend { user, token }
-      if (!data?.user || !data?.token) {
-        console.error("Register response unexpected:", data);
-        setError("Réponse serveur invalide (user/token manquant)");
-        return;
-      }
+      // IMPORTANT: miantso API tena izy
+      const { data } = await http.post("/api/auth/register", payload);
 
       login(data.user, data.token);
     } catch (err) {
-      console.error("REGISTER ERROR:", err?.response?.data || err?.message || err);
-      setError(err?.response?.data?.message || "Erreur d'inscription");
+      const msg =
+        err.response?.data?.message ||
+        err.response?.data?.error ||
+        err.message ||
+        "Erreur d'inscription";
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -77,7 +59,6 @@ const Register = ({ onSwitch }) => {
               onChange={handleChange}
               required
               minLength={3}
-              autoComplete="username"
             />
           </div>
 
@@ -90,7 +71,6 @@ const Register = ({ onSwitch }) => {
               value={form.email}
               onChange={handleChange}
               required
-              autoComplete="email"
             />
           </div>
 
@@ -103,7 +83,6 @@ const Register = ({ onSwitch }) => {
               value={form.password}
               onChange={handleChange}
               required
-              autoComplete="new-password"
             />
           </div>
 
@@ -116,7 +95,6 @@ const Register = ({ onSwitch }) => {
               value={form.confirm}
               onChange={handleChange}
               required
-              autoComplete="new-password"
             />
           </div>
 
@@ -126,10 +104,7 @@ const Register = ({ onSwitch }) => {
         </form>
 
         <p className="auth-switch">
-          Déjà un compte ?{" "}
-          <span onClick={onSwitch} role="button" tabIndex={0}>
-            Se connecter
-          </span>
+          Déjà un compte ? <span onClick={onSwitch}>Se connecter</span>
         </p>
       </div>
     </div>

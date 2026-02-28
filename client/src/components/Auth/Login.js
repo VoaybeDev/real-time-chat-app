@@ -1,7 +1,6 @@
-// client/src/components/Auth/Login.js
 import { useState } from "react";
 import { useAuth } from "../../context/AuthContext";
-import { api } from "../../lib/api";
+import http from "../../api/http";
 import "./Auth.css";
 
 const Login = ({ onSwitch }) => {
@@ -10,8 +9,7 @@ const Login = ({ onSwitch }) => {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleChange = (e) =>
-    setForm({ ...form, [e.target.name]: e.target.value });
+  const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -19,20 +17,18 @@ const Login = ({ onSwitch }) => {
     setLoading(true);
 
     try {
-      // ✅ IMPORTANT: utilise api (baseURL = HF)
-      const { data } = await api.post("/auth/login", form);
+      // IMPORTANT: miantso ilay API tena izy (HF/Railway) fa tsy /api amin'i Vercel
+      const { data } = await http.post("/api/auth/login", form);
 
-      // attend { user, token }
-      if (!data?.user || !data?.token) {
-        console.error("Login response unexpected:", data);
-        setError("Réponse serveur invalide (user/token manquant)");
-        return;
-      }
-
+      // miankina amin'ny response anao: data.user & data.token
       login(data.user, data.token);
     } catch (err) {
-      console.error("LOGIN ERROR:", err?.response?.data || err?.message || err);
-      setError(err?.response?.data?.message || "Erreur de connexion");
+      const msg =
+        err.response?.data?.message ||
+        err.response?.data?.error ||
+        err.message ||
+        "Erreur de connexion";
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -58,7 +54,6 @@ const Login = ({ onSwitch }) => {
               value={form.email}
               onChange={handleChange}
               required
-              autoComplete="email"
             />
           </div>
 
@@ -71,7 +66,6 @@ const Login = ({ onSwitch }) => {
               value={form.password}
               onChange={handleChange}
               required
-              autoComplete="current-password"
             />
           </div>
 
@@ -81,10 +75,7 @@ const Login = ({ onSwitch }) => {
         </form>
 
         <p className="auth-switch">
-          Pas encore de compte ?{" "}
-          <span onClick={onSwitch} role="button" tabIndex={0}>
-            Créer un compte
-          </span>
+          Pas encore de compte ? <span onClick={onSwitch}>Créer un compte</span>
         </p>
       </div>
     </div>
