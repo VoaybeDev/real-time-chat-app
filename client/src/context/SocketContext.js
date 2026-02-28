@@ -1,55 +1,44 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { io } from 'socket.io-client';
-import { useAuth } from './AuthContext';
+// client/src/context/SocketContext.js
+import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { io } from "socket.io-client";
 
-const SocketContext = createContext();
-
-// ⚠️ Utilise la variable d'environnement, jamais localhost hardcodé
-const SERVER_URL = process.env.REACT_APP_SERVER_URL || 'http://localhost:5000';
+const SocketContext = createContext(null);
 
 export const SocketProvider = ({ children }) => {
-  const { token } = useAuth();
-  const socketRef = useRef(null);
-  const [isConnected, setIsConnected] = useState(false);
-  const [onlineUsers, setOnlineUsers] = useState([]);
+  const [socket, setSocket] = useState(null);
+
+  const SERVER_URL = process.env.REACT_APP_SERVER_URL;
 
   useEffect(() => {
-    if (!token) return;
+    if (!SERVER_URL) {
+      console.error("REACT_APP_SERVER_URL manquant !");
+      return;
+    }
 
-    const socket = io(SERVER_URL, {  // ← était 'http://localhost:5000' hardcodé
-      auth: { token },
-      transports: ['websocket'],
+    // IMPORTANT : on laisse polling + websocket pour éviter les erreurs "réseau"
+    const s = io(SERVER_URL, {
+      withCredentials: true,
+      transports: ["polling", "websocket"],
     });
 
-    socket.on('connect', () => {
-      console.log('✅ Socket connecté:', socket.id);
-      setIsConnected(true);
+    s.on("connect", () => {
+      console.log("Socket connected ✅", s.id);
     });
 
-    socket.on('disconnect', () => {
-      console.log('❌ Socket déconnecté');
-      setIsConnected(false);
+    s.on("connect_error", (err) => {
+      console.error("Socket connect_error ❌", err?.message || err);
     });
 
-    socket.on('connect_error', (err) => {
-      console.error('❌ Erreur socket:', err.message);
-    });
-
-    socket.on('users:online', (users) => setOnlineUsers(users));
-
-    socketRef.current = socket;
+    setSocket(s);
 
     return () => {
-      socket.disconnect();
-      socketRef.current = null;
+      s.disconnect();
     };
-  }, [token]);
+  }, [SERVER_URL]);
 
-  return (
-    <SocketContext.Provider value={{ socket: socketRef.current, isConnected, onlineUsers }}>
-      {children}
-    </SocketContext.Provider>
-  );
+  const value = useMemo(() => ({ socket }), [socket]);
+
+  return <SocketContext.Provider value={value}>{children}</SocketContext.Provider>;
 };
 
 export const useSocket = () => useContext(SocketContext);

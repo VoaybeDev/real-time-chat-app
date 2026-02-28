@@ -1,191 +1,137 @@
-const express = require("express");
-const http = require("http");
-const { Server } = require("socket.io");
-const mongoose = require("mongoose");
-const jwt = require("jsonwebtoken");
-const cors = require("cors");
-const path = require("path");
-const fs = require("fs");
+// server/index.js
 require("dotenv").config();
+const express = require("express");
+const cors = require("cors");
+const http = require("http");
+const mongoose = require("mongoose");
+const { Server } = require("socket.io");
 
-const Message = require("./models/Message");
-const User = require("./models/User");
+// Routes
+const authRoutes = require("./routes/auth");
+const messageRoutes = require("./routes/messages");
 
 const app = express();
-const server = http.createServer(app);
 
-/**
- * ========= CORS =========
- * En prod: CLIENT_URL = https://ton-frontend.vercel.app
- * En local: http://localhost:3000
- */
+// --------------------
+// Utils
+// --------------------
+const parseOrigins = (originsStr) => {
+  if (!originsStr) return [];
+  return originsStr
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+};
+
+// Exemple:
+// CLIENT_URL="https://xxx.vercel.app,https://yyy.vercel.app"
 const allowedOrigins = [
-  process.env.CLIENT_URL, // ex: https://real-time-chat-app-xxx.vercel.app
+  ...parseOrigins(process.env.CLIENT_URL),
   "http://localhost:3000",
 ];
 
-const corsOptions = {
-  origin(origin, cb) {
-    // Autorise les requêtes sans origin (Postman / curl)
-    if (!origin) return cb(null, true);
-    if (allowedOrigins.includes(origin)) return cb(null, true);
-    return cb(new Error(`CORS bloqué pour origin: ${origin}`));
+// --------------------
+// Middlewares
+// --------------------
+app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ extended: true }));
+
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // Autorise les appels sans origin (Postman/curl)
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+
+      return callback(
+        new Error(
+          `CORS blocked for origin: ${origin}. Allowed: ${allowedOrigins.join(
+            ", "
+          )}`
+        )
+      );
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
+
+// --------------------
+// Health check
+// --------------------
+app.get("/health", (req, res) => {
+  res.status(200).json({ ok: true, service: "chat-api" });
+});
+
+// --------------------
+// API routes
+// --------------------
+app.use("/api/auth", authRoutes);
+app.use("/api/messages", messageRoutes);
+
+// --------------------
+// Error handler
+// --------------------
+app.use((err, req, res, next) => {
+  console.error("SERVER ERROR:", err?.message || err);
+  res.status(500).json({ message: "Server error", error: err?.message });
+});
+
+// --------------------
+// Server + Socket
+// --------------------
+const server = http.createServer(app);
+
+const io = new Server(server, {
+  cors: {
+    origin: allowedOrigins,
+    credentials: true,
+    methods: ["GET", "POST"],
   },
-  methods: ["GET", "POST"],
-  credentials: true,
-};
-
-app.use(cors(corsOptions));
-app.use(express.json());
-
-/**
- * ========= UPLOADS =========
- * Railway: FS éphémère -> ok pour MVP.
- */
-const baseUploadDir = process.env.UPLOAD_DIR
-  ? path.resolve(process.env.UPLOAD_DIR)
-  : path.join(__dirname, "uploads");
-
-const uploadsAudio = path.join(baseUploadDir, "audio");
-const uploadsFiles = path.join(baseUploadDir, "files");
-
-if (!fs.existsSync(uploadsAudio)) fs.mkdirSync(uploadsAudio, { recursive: true });
-if (!fs.existsSync(uploadsFiles)) fs.mkdirSync(uploadsFiles, { recursive: true });
-
-app.use("/uploads", express.static(baseUploadDir));
-
-/**
- * ========= ROUTES =========
- */
-app.use("/api/auth", require("./routes/auth"));
-app.use("/api/messages", require("./routes/messages"));
-
-/**
- * ========= HEALTH / ROOT =========
- */
-app.get("/", (req, res) => res.status(200).send("API is running ✅"));
-app.get("/health", (req, res) => res.status(200).json({ ok: true }));
-
-/**
- * ========= SOCKET.IO =========
- */
-const io = new Server(server, { cors: corsOptions });
-
-const onlineUsers = new Map();
-
-io.use((socket, next) => {
-  const token = socket.handshake.auth?.token;
-  if (!token) return next(new Error("Non autorisé"));
-
-  try {
-    const { userId } = jwt.verify(token, process.env.JWT_SECRET);
-    socket.userId = userId;
-    next();
-  } catch {
-    next(new Error("Token invalide"));
-  }
+  transports: ["polling", "websocket"], // important pour HF / proxies
 });
 
-io.on("connection", async (socket) => {
-  const userId = socket.userId;
-  console.log("✅ Socket connecté:", userId);
+io.on("connection", (socket) => {
+  console.log("Socket connected:", socket.id);
 
-  onlineUsers.set(userId, socket.id);
+  socket.on("joinRoom", (roomId) => {
+    socket.join(roomId);
+  });
 
-  try {
-    await User.findByIdAndUpdate(userId, { isOnline: true });
-  } catch (e) {
-    console.error("❌ Update online error:", e?.message || e);
-  }
-
-  io.emit("users:online", Array.from(onlineUsers.keys()));
-
-  socket.on("message:send", async ({ receiverId, content, type, audioUrl }) => {
-    try {
-      const message = await Message.create({
-        sender: userId,
-        receiver: receiverId,
-        content: content || "",
-        type: type || "text",
-        audioUrl: audioUrl || null,
-      });
-
-      await message.populate("sender", "username avatar");
-
-      const receiverSocketId = onlineUsers.get(receiverId);
-      if (receiverSocketId) io.to(receiverSocketId).emit("message:receive", message);
-
-      socket.emit("message:sent", message);
-    } catch (err) {
-      console.error("❌ message:send error:", err?.message || err);
-      socket.emit("error", { message: "Erreur envoi message" });
+  socket.on("sendMessage", (payload) => {
+    // payload: { roomId, message }
+    if (payload?.roomId) {
+      io.to(payload.roomId).emit("newMessage", payload);
     }
   });
 
-  socket.on("typing:start", ({ receiverId }) => {
-    const s = onlineUsers.get(receiverId);
-    if (s) io.to(s).emit("typing:start", { userId });
-  });
-
-  socket.on("typing:stop", ({ receiverId }) => {
-    const s = onlineUsers.get(receiverId);
-    if (s) io.to(s).emit("typing:stop", { userId });
-  });
-
-  socket.on("call:initiate", ({ receiverId, callType, offer }) => {
-    const s = onlineUsers.get(receiverId);
-    if (s) io.to(s).emit("call:incoming", { callerId: userId, callType, offer });
-    else socket.emit("call:unavailable", { receiverId });
-  });
-
-  socket.on("call:answer", ({ callerId, answer }) => {
-    const s = onlineUsers.get(callerId);
-    if (s) io.to(s).emit("call:answered", { answer });
-  });
-
-  socket.on("call:reject", ({ callerId }) => {
-    const s = onlineUsers.get(callerId);
-    if (s) io.to(s).emit("call:rejected");
-  });
-
-  socket.on("call:ice-candidate", ({ targetId, candidate }) => {
-    const s = onlineUsers.get(targetId);
-    if (s) io.to(s).emit("call:ice-candidate", { candidate });
-  });
-
-  socket.on("call:end", ({ targetId }) => {
-    const s = onlineUsers.get(targetId);
-    if (s) io.to(s).emit("call:ended");
-  });
-
-  socket.on("disconnect", async () => {
-    console.log("❌ Socket déconnecté:", userId);
-
-    onlineUsers.delete(userId);
-
-    try {
-      await User.findByIdAndUpdate(userId, { isOnline: false, lastSeen: new Date() });
-    } catch (e) {
-      console.error("❌ Update offline error:", e?.message || e);
-    }
-
-    io.emit("users:online", Array.from(onlineUsers.keys()));
+  socket.on("disconnect", () => {
+    console.log("Socket disconnected:", socket.id);
   });
 });
 
-/**
- * ========= DB =========
- */
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ MongoDB connecté"))
-  .catch((err) => console.error("❌ MongoDB erreur:", err));
-
-/**
- * ========= START =========
- */
+// --------------------
+// Mongo + Start
+// --------------------
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-  console.log(`🚀 Serveur démarré sur le port ${PORT}`);
-  console.log("✅ Allowed origins:", allowedOrigins);
-});
+
+(async () => {
+  try {
+    if (!process.env.MONGO_URI) {
+      throw new Error("MONGO_URI manquant dans les variables d'environnement.");
+    }
+
+    await mongoose.connect(process.env.MONGO_URI);
+    console.log("MongoDB connected ✅");
+
+    server.listen(PORT, () => {
+      console.log(`Server running on port ${PORT} ✅`);
+      console.log("Allowed origins:", allowedOrigins);
+    });
+  } catch (e) {
+    console.error("Startup error:", e);
+    process.exit(1);
+  }
+})();
