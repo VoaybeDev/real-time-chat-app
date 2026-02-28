@@ -15,6 +15,9 @@ const AppContent = () => {
       <div className="loading-screen">
         <div className="loading-logo gradient-text">💬 ChatApp</div>
         <div className="loading-spinner" />
+        <div style={{position:"fixed",bottom:10,left:10,background:"#000",color:"#fff",padding:"6px 10px",borderRadius:6,zIndex:9999,fontSize:12}}>
+          API: {process.env.REACT_APP_SERVER_URL || "MISSING"}
+        </div>
       </div>
     );
   }
