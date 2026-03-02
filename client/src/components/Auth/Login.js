@@ -1,17 +1,16 @@
+// client/src/components/Auth/Login.js
 import { useState } from "react";
 import { useAuth } from "../../context/AuthContext";
-import { api } from "../../lib/api";
 import "./Auth.css";
 
 const Login = ({ onSwitch }) => {
   const { login } = useAuth();
-
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleChange = (e) =>
-    setForm((p) => ({ ...p, [e.target.name]: e.target.value }));
+    setForm({ ...form, [e.target.name]: e.target.value });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -19,22 +18,9 @@ const Login = ({ onSwitch }) => {
     setLoading(true);
 
     try {
-      // trim pour éviter les espaces invisibles
-      const payload = {
-        email: form.email.trim(),
-        password: form.password,
-      };
-
-      const { data } = await api.post("/api/auth/login", payload);
-
-      // API renvoie { token, user }
-      login(data.user, data.token);
+      await login(form.email.trim(), form.password);
     } catch (err) {
-      const msg =
-        err?.response?.data?.message ||
-        err?.message ||
-        "Erreur de connexion";
-      setError(msg);
+      setError(err?.response?.data?.message || "Erreur de connexion");
     } finally {
       setLoading(false);
     }
@@ -60,7 +46,6 @@ const Login = ({ onSwitch }) => {
               value={form.email}
               onChange={handleChange}
               required
-              autoComplete="email"
             />
           </div>
 
@@ -73,7 +58,6 @@ const Login = ({ onSwitch }) => {
               value={form.password}
               onChange={handleChange}
               required
-              autoComplete="current-password"
             />
           </div>
 
@@ -84,9 +68,7 @@ const Login = ({ onSwitch }) => {
 
         <p className="auth-switch">
           Pas encore de compte ?{" "}
-          <span onClick={onSwitch} style={{ cursor: "pointer" }}>
-            Créer un compte
-          </span>
+          <span onClick={onSwitch}>Créer un compte</span>
         </p>
       </div>
     </div>

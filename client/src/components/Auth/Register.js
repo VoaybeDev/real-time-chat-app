@@ -1,55 +1,34 @@
+// client/src/components/Auth/Register.js
 import { useState } from "react";
 import { useAuth } from "../../context/AuthContext";
-import { api } from "../../lib/api";
 import "./Auth.css";
 
 const Register = ({ onSwitch }) => {
-  const { login } = useAuth();
-
+  const { register } = useAuth();
   const [form, setForm] = useState({
     username: "",
     email: "",
     password: "",
     confirm: "",
   });
-
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleChange = (e) =>
-    setForm((p) => ({ ...p, [e.target.name]: e.target.value }));
+    setForm({ ...form, [e.target.name]: e.target.value });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
 
-    if (form.password !== form.confirm) {
-      setError("Les mots de passe ne correspondent pas");
-      return;
-    }
-    if (form.password.length < 6) {
-      setError("Mot de passe minimum 6 caractères");
-      return;
-    }
+    if (form.password !== form.confirm) return setError("Les mots de passe ne correspondent pas");
+    if (form.password.length < 6) return setError("Mot de passe minimum 6 caractères");
 
     setLoading(true);
     try {
-      const payload = {
-        username: form.username.trim(),
-        email: form.email.trim(),
-        password: form.password,
-      };
-
-      const { data } = await api.post("/api/auth/register", payload);
-
-      // Auto-login
-      login(data.user, data.token);
+      await register(form.username.trim(), form.email.trim(), form.password);
     } catch (err) {
-      const msg =
-        err?.response?.data?.message ||
-        err?.message ||
-        "Erreur d'inscription";
-      setError(msg);
+      setError(err?.response?.data?.message || "Erreur d'inscription");
     } finally {
       setLoading(false);
     }
@@ -76,7 +55,6 @@ const Register = ({ onSwitch }) => {
               onChange={handleChange}
               required
               minLength={3}
-              autoComplete="username"
             />
           </div>
 
@@ -89,7 +67,6 @@ const Register = ({ onSwitch }) => {
               value={form.email}
               onChange={handleChange}
               required
-              autoComplete="email"
             />
           </div>
 
@@ -102,7 +79,6 @@ const Register = ({ onSwitch }) => {
               value={form.password}
               onChange={handleChange}
               required
-              autoComplete="new-password"
             />
           </div>
 
@@ -115,7 +91,6 @@ const Register = ({ onSwitch }) => {
               value={form.confirm}
               onChange={handleChange}
               required
-              autoComplete="new-password"
             />
           </div>
 
@@ -125,10 +100,7 @@ const Register = ({ onSwitch }) => {
         </form>
 
         <p className="auth-switch">
-          Déjà un compte ?{" "}
-          <span onClick={onSwitch} style={{ cursor: "pointer" }}>
-            Se connecter
-          </span>
+          Déjà un compte ? <span onClick={onSwitch}>Se connecter</span>
         </p>
       </div>
     </div>

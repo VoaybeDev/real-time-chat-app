@@ -1,48 +1,76 @@
-import React, { createContext, useContext, useState } from "react";
+// client/src/context/AuthContext.js
+import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
+  const [token, setToken] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  const register = async (username, email, password) => {
+  const isAuthenticated = !!token;
+
+  // Charge la session au démarrage
+  useEffect(() => {
     try {
-      const res = await api.post("/auth/register", { username, email, password });
-      setUser(res.data?.user || null);
-      return { ok: true, data: res.data };
-    } catch (err) {
-      console.error("REGISTER ERROR:", err?.response?.data || err?.message);
-      return {
-        ok: false,
-        status: err?.response?.status,
-        message: err?.response?.data?.message || "Erreur d'inscription",
-      };
+      const savedToken = localStorage.getItem("chat_token");
+      const savedUser = localStorage.getItem("chat_user");
+
+      if (savedToken) setToken(savedToken);
+      if (savedUser) setUser(JSON.parse(savedUser));
+    } catch (e) {
+      // ignore
+    } finally {
+      setLoading(false);
     }
+  }, []);
+
+  const saveSession = (nextUser, nextToken) => {
+    setUser(nextUser);
+    setToken(nextToken);
+    localStorage.setItem("chat_token", nextToken);
+    localStorage.setItem("chat_user", JSON.stringify(nextUser));
+  };
+
+  const clearSession = () => {
+    setUser(null);
+    setToken(null);
+    localStorage.removeItem("chat_token");
+    localStorage.removeItem("chat_user");
   };
 
   const login = async (email, password) => {
-    try {
-      const res = await api.post("/auth/login", { email, password });
-      setUser(res.data?.user || null);
-      return { ok: true, data: res.data };
-    } catch (err) {
-      console.error("LOGIN ERROR:", err?.response?.data || err?.message);
-      return {
-        ok: false,
-        status: err?.response?.status,
-        message: err?.response?.data?.message || "Erreur de connexion",
-      };
-    }
+    const { data } = await api.post("/auth/login", { email, password });
+    saveSession(data.user, data.token);
+    return data;
   };
 
-  const logout = () => setUser(null);
+  const register = async (username, email, password) => {
+    const { data } = await api.post("/auth/register", { username, email, password });
+    saveSession(data.user, data.token);
+    return data;
+  };
 
-  return (
-    <AuthContext.Provider value={{ user, register, login, logout }}>
-      {children}
-    </AuthContext.Provider>
+  const logout = () => {
+    clearSession();
+  };
+
+  // Ajoute le token automatiquement sur les requêtes
+  useEffect(() => {
+    const id = api.interceptors.request.use((config) => {
+      if (token) config.headers.Authorization = `Bearer ${token}`;
+      return config;
+    });
+    return () => api.interceptors.request.eject(id);
+  }, [token]);
+
+  const value = useMemo(
+    () => ({ user, token, isAuthenticated, loading, login, register, logout }),
+    [user, token, isAuthenticated, loading]
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
 export const useAuth = () => useContext(AuthContext);
