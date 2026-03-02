@@ -11,62 +11,45 @@ const messageRoutes = require("./routes/messages");
 
 const app = express();
 
-/**
- * Nettoie une origin / url (enlève slash final)
- */
-const normalizeOrigin = (value = "") => String(value).trim().replace(/\/+$/, "");
+/* ===============================
+   ORIGIN PARSER ROBUSTE
+================================ */
+const normalize = (v = "") => String(v).trim().replace(/\/+$/, "");
 
-/**
- * Parse CLIENT_URL robuste :
- * - accepte virgules, espaces, nouvelles lignes
- * - nettoie les urls (trim + enlève slash final)
- *
- * Exemples valides dans HF Secrets :
- * 1) "https://a.vercel.app,https://b.vercel.app"
- * 2) "https://a.vercel.app https://b.vercel.app"
- * 3) "https://a.vercel.app\nhttps://b.vercel.app"
- */
-const parseOrigins = (originsStr) => {
-  if (!originsStr) return [];
-  return String(originsStr)
-    .split(/[\s,]+/g) // <-- important : split sur espaces OU virgules
-    .map(normalizeOrigin)
+const parseOrigins = (str) => {
+  if (!str) return [];
+  return str
+    .split(/[\s,]+/g) // espace OU virgule OU retour ligne
+    .map(normalize)
     .filter(Boolean);
 };
 
-// --------------------
-// Allowed origins
-// --------------------
-const allowedOrigins = Array.from(
-  new Set([
-    ...parseOrigins(process.env.CLIENT_URL),
-    "http://localhost:3000",
-  ])
-);
+const allowedOrigins = [
+  ...parseOrigins(process.env.CLIENT_URL),
+  "http://localhost:3000",
+];
 
-// --------------------
-// Middlewares
-// --------------------
-app.use(express.json({ limit: "1mb" }));
+console.log("Allowed origins:", allowedOrigins);
+
+/* ===============================
+   MIDDLEWARES
+================================ */
+app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// CORS Express (REST)
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Autorise les appels sans Origin (curl/postman)
       if (!origin) return callback(null, true);
 
-      const cleaned = normalizeOrigin(origin);
-      if (allowedOrigins.includes(cleaned)) return callback(null, true);
+      const cleaned = normalize(origin);
 
-      return callback(
-        new Error(
-          `CORS blocked for origin: ${cleaned}. Allowed: ${allowedOrigins.join(
-            " | "
-          )}`
-        )
-      );
+      if (allowedOrigins.includes(cleaned)) {
+        return callback(null, true);
+      }
+
+      console.error("CORS blocked:", cleaned);
+      return callback(new Error("CORS bloqué pour origin: " + cleaned));
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -74,62 +57,48 @@ app.use(
   })
 );
 
-// Optionnel mais pratique pour les preflight
 app.options("*", cors());
 
-// --------------------
-// Health check
-// --------------------
+/* ===============================
+   ROUTES
+================================ */
 app.get("/health", (req, res) => {
-  res.status(200).json({ ok: true, service: "chat-api" });
+  res.json({ ok: true });
 });
 
-// --------------------
-// API routes
-// --------------------
 app.use("/api/auth", authRoutes);
 app.use("/api/messages", messageRoutes);
 
-// --------------------
-// Error handler
-// --------------------
+/* ===============================
+   ERROR HANDLER
+================================ */
 app.use((err, req, res, next) => {
-  console.error("SERVER ERROR:", err?.stack || err);
-  res.status(500).json({
-    message: err?.message || "Server error",
-  });
+  console.error("SERVER ERROR:", err.message);
+  res.status(500).json({ message: err.message });
 });
 
-// --------------------
-// Server + Socket.io
-// --------------------
+/* ===============================
+   SERVER + SOCKET
+================================ */
 const server = http.createServer(app);
 
-// CORS Socket.io : même logique que REST (sinon tu auras des 400 sur /socket.io)
 const io = new Server(server, {
   cors: {
-    origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
-      const cleaned = normalizeOrigin(origin);
-      if (allowedOrigins.includes(cleaned)) return callback(null, true);
-
-      return callback(new Error(`Socket CORS blocked for origin: ${cleaned}`));
-    },
+    origin: allowedOrigins,
     credentials: true,
-    methods: ["GET", "POST"],
   },
-  transports: ["polling", "websocket"], // ok pour HF proxies
+  transports: ["polling", "websocket"],
 });
 
 io.on("connection", (socket) => {
   console.log("Socket connected:", socket.id);
 
-  socket.on("joinRoom", (roomId) => {
-    if (roomId) socket.join(roomId);
-  });
+  socket.on("joinRoom", (roomId) => socket.join(roomId));
 
   socket.on("sendMessage", (payload) => {
-    if (payload?.roomId) io.to(payload.roomId).emit("newMessage", payload);
+    if (payload?.roomId) {
+      io.to(payload.roomId).emit("newMessage", payload);
+    }
   });
 
   socket.on("disconnect", () => {
@@ -137,42 +106,29 @@ io.on("connection", (socket) => {
   });
 });
 
-// --------------------
-// Mongo + Start
-// --------------------
-const PORT = process.env.PORT || 5000;
+/* ===============================
+   MONGO + START
+================================ */
+const PORT = process.env.PORT || 7860;
 
 (async () => {
   try {
-    if (!process.env.MONGO_URI) {
-      throw new Error("MONGO_URI manquant dans les variables d'environnement.");
-    }
+    if (!process.env.MONGO_URI)
+      throw new Error("MONGO_URI manquant");
 
-    // Si Mongo est inaccessible -> erreur claire (pas buffering)
     mongoose.set("bufferCommands", false);
-
-    mongoose.connection.on("connected", () =>
-      console.log("Mongo event: connected ✅")
-    );
-    mongoose.connection.on("error", (e) =>
-      console.error("Mongo event: error ❌", e)
-    );
-    mongoose.connection.on("disconnected", () =>
-      console.log("Mongo event: disconnected ⚠️")
-    );
 
     await mongoose.connect(process.env.MONGO_URI, {
       serverSelectionTimeoutMS: 15000,
     });
 
-    console.log("MongoDB connected ✅");
+    console.log("MongoDB connecté ✅");
 
     server.listen(PORT, () => {
-      console.log(`Server running on port ${PORT} ✅`);
-      console.log("Allowed origins:", allowedOrigins);
+      console.log("🚀 Serveur démarré sur le port", PORT);
     });
-  } catch (e) {
-    console.error("Startup error:", e);
+  } catch (err) {
+    console.error("Startup error:", err);
     process.exit(1);
   }
 })();
