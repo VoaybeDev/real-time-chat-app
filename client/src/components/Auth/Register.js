@@ -1,46 +1,27 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useAuth } from "../../context/AuthContext";
-import axios from "axios";
+import { api } from "../../lib/api";
 import "./Auth.css";
-
-const normalizeUrl = (url) => (url ? url.replace(/\/+$/, "") : "");
 
 const Register = ({ onSwitch }) => {
   const { login } = useAuth();
+
   const [form, setForm] = useState({
     username: "",
     email: "",
     password: "",
     confirm: "",
   });
+
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const API_BASE = useMemo(
-    () => normalizeUrl(process.env.REACT_APP_SERVER_URL),
-    []
-  );
-
-  const api = useMemo(() => {
-    return axios.create({
-      baseURL: API_BASE,
-      withCredentials: true,
-      headers: { "Content-Type": "application/json" },
-      timeout: 20000,
-    });
-  }, [API_BASE]);
-
   const handleChange = (e) =>
-    setForm({ ...form, [e.target.name]: e.target.value });
+    setForm((p) => ({ ...p, [e.target.name]: e.target.value }));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
-
-    if (!API_BASE) {
-      setError("REACT_APP_SERVER_URL manquant sur Vercel (Environment Variables).");
-      return;
-    }
 
     if (form.password !== form.confirm) {
       setError("Les mots de passe ne correspondent pas");
@@ -53,11 +34,15 @@ const Register = ({ onSwitch }) => {
 
     setLoading(true);
     try {
-      const { data } = await api.post("/api/auth/register", {
-        username: form.username,
-        email: form.email,
+      const payload = {
+        username: form.username.trim(),
+        email: form.email.trim(),
         password: form.password,
-      });
+      };
+
+      const { data } = await api.post("/api/auth/register", payload);
+
+      // Auto-login
       login(data.user, data.token);
     } catch (err) {
       const msg =
@@ -141,12 +126,10 @@ const Register = ({ onSwitch }) => {
 
         <p className="auth-switch">
           Déjà un compte ?{" "}
-          <span onClick={onSwitch}>Se connecter</span>
+          <span onClick={onSwitch} style={{ cursor: "pointer" }}>
+            Se connecter
+          </span>
         </p>
-
-        <div style={{ marginTop: 10, fontSize: 12, opacity: 0.7 }}>
-          API: {API_BASE || "MISSING"}
-        </div>
       </div>
     </div>
   );

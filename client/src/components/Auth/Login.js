@@ -1,45 +1,33 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useAuth } from "../../context/AuthContext";
-import axios from "axios";
+import { api } from "../../lib/api";
 import "./Auth.css";
-
-const normalizeUrl = (url) => (url ? url.replace(/\/+$/, "") : "");
 
 const Login = ({ onSwitch }) => {
   const { login } = useAuth();
+
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const API_BASE = useMemo(
-    () => normalizeUrl(process.env.REACT_APP_SERVER_URL),
-    []
-  );
-
-  const api = useMemo(() => {
-    return axios.create({
-      baseURL: API_BASE,             // ex: https://voaybe-voaybe-chat-api.hf.space
-      withCredentials: true,
-      headers: { "Content-Type": "application/json" },
-      timeout: 20000,
-    });
-  }, [API_BASE]);
-
   const handleChange = (e) =>
-    setForm({ ...form, [e.target.name]: e.target.value });
+    setForm((p) => ({ ...p, [e.target.name]: e.target.value }));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
-
-    if (!API_BASE) {
-      setError("REACT_APP_SERVER_URL manquant sur Vercel (Environment Variables).");
-      return;
-    }
-
     setLoading(true);
+
     try {
-      const { data } = await api.post("/api/auth/login", form);
+      // trim pour éviter les espaces invisibles
+      const payload = {
+        email: form.email.trim(),
+        password: form.password,
+      };
+
+      const { data } = await api.post("/api/auth/login", payload);
+
+      // API renvoie { token, user }
       login(data.user, data.token);
     } catch (err) {
       const msg =
@@ -96,13 +84,10 @@ const Login = ({ onSwitch }) => {
 
         <p className="auth-switch">
           Pas encore de compte ?{" "}
-          <span onClick={onSwitch}>Créer un compte</span>
+          <span onClick={onSwitch} style={{ cursor: "pointer" }}>
+            Créer un compte
+          </span>
         </p>
-
-        {/* petit debug utile */}
-        <div style={{ marginTop: 10, fontSize: 12, opacity: 0.7 }}>
-          API: {API_BASE || "MISSING"}
-        </div>
       </div>
     </div>
   );
