@@ -1,6 +1,5 @@
 // client/src/context/AuthContext.js
-import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { api } from "../lib/api";
+import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from "react";
 
 const AuthContext = createContext(null);
 
@@ -9,65 +8,63 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const isAuthenticated = !!token;
+  // ---------- Helpers storage ----------
+  const persist = useCallback((u, t) => {
+    if (t) localStorage.setItem("token", t);
+    else localStorage.removeItem("token");
 
-  // Charge la session au démarrage
+    if (u) localStorage.setItem("user", JSON.stringify(u));
+    else localStorage.removeItem("user");
+  }, []);
+
+  // ---------- Actions ----------
+  const login = useCallback((u, t) => {
+    setUser(u);
+    setToken(t);
+    persist(u, t);
+  }, [persist]);
+
+  const logout = useCallback(() => {
+    setUser(null);
+    setToken(null);
+    persist(null, null);
+  }, [persist]);
+
+  // (optionnel) si tu as une fonction register dans ce context
+  // et qu'elle fait juste comme login :
+  const register = useCallback((u, t) => {
+    setUser(u);
+    setToken(t);
+    persist(u, t);
+  }, [persist]);
+
+  // ---------- Init from localStorage ----------
   useEffect(() => {
     try {
-      const savedToken = localStorage.getItem("chat_token");
-      const savedUser = localStorage.getItem("chat_user");
-
+      const savedToken = localStorage.getItem("token");
+      const savedUser = localStorage.getItem("user");
       if (savedToken) setToken(savedToken);
       if (savedUser) setUser(JSON.parse(savedUser));
     } catch (e) {
-      // ignore
+      // ignore parse errors
     } finally {
       setLoading(false);
     }
   }, []);
 
-  const saveSession = (nextUser, nextToken) => {
-    setUser(nextUser);
-    setToken(nextToken);
-    localStorage.setItem("chat_token", nextToken);
-    localStorage.setItem("chat_user", JSON.stringify(nextUser));
-  };
-
-  const clearSession = () => {
-    setUser(null);
-    setToken(null);
-    localStorage.removeItem("chat_token");
-    localStorage.removeItem("chat_user");
-  };
-
-  const login = async (email, password) => {
-    const { data } = await api.post("/auth/login", { email, password });
-    saveSession(data.user, data.token);
-    return data;
-  };
-
-  const register = async (username, email, password) => {
-    const { data } = await api.post("/auth/register", { username, email, password });
-    saveSession(data.user, data.token);
-    return data;
-  };
-
-  const logout = () => {
-    clearSession();
-  };
-
-  // Ajoute le token automatiquement sur les requêtes
-  useEffect(() => {
-    const id = api.interceptors.request.use((config) => {
-      if (token) config.headers.Authorization = `Bearer ${token}`;
-      return config;
-    });
-    return () => api.interceptors.request.eject(id);
-  }, [token]);
+  const isAuthenticated = !!token;
 
   const value = useMemo(
-    () => ({ user, token, isAuthenticated, loading, login, register, logout }),
-    [user, token, isAuthenticated, loading]
+    () => ({
+      user,
+      token,
+      loading,
+      isAuthenticated,
+      login,
+      logout,
+      register,
+    }),
+    [user, token, loading, isAuthenticated, login, logout, register]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
