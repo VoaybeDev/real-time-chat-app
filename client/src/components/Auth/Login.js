@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
-import http from "../../api/http";
+import axios from "axios";
 import "./Auth.css";
+
+const normalizeUrl = (url) => (url ? url.replace(/\/+$/, "") : "");
 
 const Login = ({ onSwitch }) => {
   const { login } = useAuth();
@@ -9,24 +11,40 @@ const Login = ({ onSwitch }) => {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
+  const API_BASE = useMemo(
+    () => normalizeUrl(process.env.REACT_APP_SERVER_URL),
+    []
+  );
+
+  const api = useMemo(() => {
+    return axios.create({
+      baseURL: API_BASE,             // ex: https://voaybe-voaybe-chat-api.hf.space
+      withCredentials: true,
+      headers: { "Content-Type": "application/json" },
+      timeout: 20000,
+    });
+  }, [API_BASE]);
+
+  const handleChange = (e) =>
+    setForm({ ...form, [e.target.name]: e.target.value });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
+
+    if (!API_BASE) {
+      setError("REACT_APP_SERVER_URL manquant sur Vercel (Environment Variables).");
+      return;
+    }
+
     setLoading(true);
-
     try {
-      // IMPORTANT: miantso ilay API tena izy (HF/Railway) fa tsy /api amin'i Vercel
-      const { data } = await http.post("/api/auth/login", form);
-
-      // miankina amin'ny response anao: data.user & data.token
+      const { data } = await api.post("/api/auth/login", form);
       login(data.user, data.token);
     } catch (err) {
       const msg =
-        err.response?.data?.message ||
-        err.response?.data?.error ||
-        err.message ||
+        err?.response?.data?.message ||
+        err?.message ||
         "Erreur de connexion";
       setError(msg);
     } finally {
@@ -54,6 +72,7 @@ const Login = ({ onSwitch }) => {
               value={form.email}
               onChange={handleChange}
               required
+              autoComplete="email"
             />
           </div>
 
@@ -66,6 +85,7 @@ const Login = ({ onSwitch }) => {
               value={form.password}
               onChange={handleChange}
               required
+              autoComplete="current-password"
             />
           </div>
 
@@ -75,8 +95,14 @@ const Login = ({ onSwitch }) => {
         </form>
 
         <p className="auth-switch">
-          Pas encore de compte ? <span onClick={onSwitch}>Créer un compte</span>
+          Pas encore de compte ?{" "}
+          <span onClick={onSwitch}>Créer un compte</span>
         </p>
+
+        {/* petit debug utile */}
+        <div style={{ marginTop: 10, fontSize: 12, opacity: 0.7 }}>
+          API: {API_BASE || "MISSING"}
+        </div>
       </div>
     </div>
   );

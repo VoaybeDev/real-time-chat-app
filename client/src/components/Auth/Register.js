@@ -1,36 +1,68 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
-import http from "../../api/http";
+import axios from "axios";
 import "./Auth.css";
+
+const normalizeUrl = (url) => (url ? url.replace(/\/+$/, "") : "");
 
 const Register = ({ onSwitch }) => {
   const { login } = useAuth();
-  const [form, setForm] = useState({ username: "", email: "", password: "", confirm: "" });
+  const [form, setForm] = useState({
+    username: "",
+    email: "",
+    password: "",
+    confirm: "",
+  });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
+  const API_BASE = useMemo(
+    () => normalizeUrl(process.env.REACT_APP_SERVER_URL),
+    []
+  );
+
+  const api = useMemo(() => {
+    return axios.create({
+      baseURL: API_BASE,
+      withCredentials: true,
+      headers: { "Content-Type": "application/json" },
+      timeout: 20000,
+    });
+  }, [API_BASE]);
+
+  const handleChange = (e) =>
+    setForm({ ...form, [e.target.name]: e.target.value });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
 
-    if (form.password !== form.confirm) return setError("Les mots de passe ne correspondent pas");
-    if (form.password.length < 6) return setError("Mot de passe minimum 6 caractères");
+    if (!API_BASE) {
+      setError("REACT_APP_SERVER_URL manquant sur Vercel (Environment Variables).");
+      return;
+    }
+
+    if (form.password !== form.confirm) {
+      setError("Les mots de passe ne correspondent pas");
+      return;
+    }
+    if (form.password.length < 6) {
+      setError("Mot de passe minimum 6 caractères");
+      return;
+    }
 
     setLoading(true);
     try {
-      const payload = { username: form.username, email: form.email, password: form.password };
-
-      // IMPORTANT: miantso API tena izy
-      const { data } = await http.post("/api/auth/register", payload);
-
+      const { data } = await api.post("/api/auth/register", {
+        username: form.username,
+        email: form.email,
+        password: form.password,
+      });
       login(data.user, data.token);
     } catch (err) {
       const msg =
-        err.response?.data?.message ||
-        err.response?.data?.error ||
-        err.message ||
+        err?.response?.data?.message ||
+        err?.message ||
         "Erreur d'inscription";
       setError(msg);
     } finally {
@@ -59,6 +91,7 @@ const Register = ({ onSwitch }) => {
               onChange={handleChange}
               required
               minLength={3}
+              autoComplete="username"
             />
           </div>
 
@@ -71,6 +104,7 @@ const Register = ({ onSwitch }) => {
               value={form.email}
               onChange={handleChange}
               required
+              autoComplete="email"
             />
           </div>
 
@@ -83,6 +117,7 @@ const Register = ({ onSwitch }) => {
               value={form.password}
               onChange={handleChange}
               required
+              autoComplete="new-password"
             />
           </div>
 
@@ -95,6 +130,7 @@ const Register = ({ onSwitch }) => {
               value={form.confirm}
               onChange={handleChange}
               required
+              autoComplete="new-password"
             />
           </div>
 
@@ -104,8 +140,13 @@ const Register = ({ onSwitch }) => {
         </form>
 
         <p className="auth-switch">
-          Déjà un compte ? <span onClick={onSwitch}>Se connecter</span>
+          Déjà un compte ?{" "}
+          <span onClick={onSwitch}>Se connecter</span>
         </p>
+
+        <div style={{ marginTop: 10, fontSize: 12, opacity: 0.7 }}>
+          API: {API_BASE || "MISSING"}
+        </div>
       </div>
     </div>
   );
