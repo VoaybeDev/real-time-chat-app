@@ -25,7 +25,6 @@ const DebugApiBadge = () => (
     }}
   >
     API: {process.env.REACT_APP_SERVER_URL || "MISSING"}
-    console.log("API=", process.env.REACT_APP_SERVER_URL);
   </div>
 );
 

@@ -1,44 +1,38 @@
-// client/src/context/SocketContext.js
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { io } from "socket.io-client";
+import { baseURL } from "../lib/api";
+import { useAuth } from "./AuthContext";
 
 const SocketContext = createContext(null);
 
 export const SocketProvider = ({ children }) => {
+  const { token, isAuthenticated } = useAuth();
   const [socket, setSocket] = useState(null);
 
-  const SERVER_URL = process.env.REACT_APP_SERVER_URL;
-
   useEffect(() => {
-    if (!SERVER_URL) {
-      console.error("REACT_APP_SERVER_URL manquant !");
-      return;
-    }
+    if (!isAuthenticated) return;
 
-    // IMPORTANT : on laisse polling + websocket pour éviter les erreurs "réseau"
-    const s = io(SERVER_URL, {
-      withCredentials: true,
+    const s = io(baseURL, {
       transports: ["polling", "websocket"],
-    });
-
-    s.on("connect", () => {
-      console.log("Socket connected ✅", s.id);
-    });
-
-    s.on("connect_error", (err) => {
-      console.error("Socket connect_error ❌", err?.message || err);
+      auth: { token }, // si ton backend veut auth socket (optionnel)
+      withCredentials: true,
     });
 
     setSocket(s);
 
     return () => {
       s.disconnect();
+      setSocket(null);
     };
-  }, [SERVER_URL]);
+  }, [isAuthenticated, token]);
 
   const value = useMemo(() => ({ socket }), [socket]);
 
   return <SocketContext.Provider value={value}>{children}</SocketContext.Provider>;
 };
 
-export const useSocket = () => useContext(SocketContext);
+export const useSocket = () => {
+  const ctx = useContext(SocketContext);
+  if (!ctx) throw new Error("useSocket must be used within SocketProvider");
+  return ctx;
+};

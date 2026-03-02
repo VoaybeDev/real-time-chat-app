@@ -1,14 +1,15 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useSocket } from '../../context/SocketContext';
-import { useAuth } from '../../context/AuthContext';
-import { useWebRTC } from '../../hooks/useWebRTC';
-import { useToast } from '../UI/Toast';
-import UserList from './UserList';
-import ChatWindow from './ChatWindow';
-import CallModal from '../Call/CallModal';
-import IncomingCall from '../Call/IncomingCall';
-import axios from 'axios';
-import './Chat.css';
+// client/src/components/Chat/ChatLayout.js
+import { useState, useEffect, useCallback } from "react";
+import { useSocket } from "../../context/SocketContext";
+import { useAuth } from "../../context/AuthContext";
+import { useWebRTC } from "../../hooks/useWebRTC";
+import { useToast } from "../UI/Toast";
+import UserList from "./UserList";
+import ChatWindow from "./ChatWindow";
+import CallModal from "../Call/CallModal";
+import IncomingCall from "../Call/IncomingCall";
+import api from "../../lib/api"; // ✅ IMPORTANT
+import "./Chat.css";
 
 const ChatLayout = () => {
   const { user, logout } = useAuth();
@@ -28,7 +29,6 @@ const ChatLayout = () => {
 
   const handleSelectUser = (u) => {
     setSelectedUser(u);
-    // Reset unread count for this user
     setUnreadCounts((prev) => ({ ...prev, [u._id]: 0 }));
     if (isMobile()) setShowSidebar(false);
   };
@@ -38,121 +38,173 @@ const ChatLayout = () => {
     setSelectedUser(null);
   };
 
-  // Load users
+  // -----------------------
+  // Load users (API)
+  // -----------------------
   useEffect(() => {
     const fetchUsers = async () => {
-      const { data } = await axios.get('/api/auth/users');
-      setUsers(data.users);
+      try {
+        const { data } = await api.get("/auth/users");
+        // Certains backends renvoient {users: []}, d'autres renvoient directement []
+        const list = Array.isArray(data) ? data : data?.users || [];
+        setUsers(list);
+      } catch (err) {
+        console.error("fetchUsers error:", err?.response?.data || err.message);
+        setUsers([]);
+        showToast({
+          title: "Erreur",
+          message: err?.response?.data?.message || "Impossible de charger les utilisateurs",
+          type: "error",
+        });
+      }
     };
+
     fetchUsers();
-  }, []);
+  }, [showToast]);
 
+  // -----------------------
   // Load message history
+  // -----------------------
   useEffect(() => {
-    if (!selectedUser) return;
-    const fetchMessages = async () => {
-      const { data } = await axios.get(`/api/messages/${selectedUser._id}`);
-      setMessages(data.messages);
-    };
-    fetchMessages();
-  }, [selectedUser]);
+    if (!selectedUser?._id) return;
 
-  // Listen to socket events
+    const fetchMessages = async () => {
+      try {
+        const { data } = await api.get(`/messages/${selectedUser._id}`);
+        const list = Array.isArray(data) ? data : data?.messages || [];
+        setMessages(list);
+      } catch (err) {
+        console.error("fetchMessages error:", err?.response?.data || err.message);
+        setMessages([]);
+        showToast({
+          title: "Erreur",
+          message: err?.response?.data?.message || "Impossible de charger l'historique",
+          type: "error",
+        });
+      }
+    };
+
+    fetchMessages();
+  }, [selectedUser, showToast]);
+
+  // -----------------------
+  // Socket events
+  // -----------------------
   useEffect(() => {
     if (!socket) return;
 
-    socket.on('message:receive', (message) => {
+    const onReceive = (message) => {
       const senderId = message.sender?._id || message.sender;
 
-      // Update last message
       setLastMessages((prev) => ({ ...prev, [senderId]: message }));
 
       if (selectedUser && senderId === selectedUser._id) {
         setMessages((prev) => [...prev, message]);
       } else {
-        // Increment unread message count
         setUnreadCounts((prev) => ({
           ...prev,
           [senderId]: (prev[senderId] || 0) + 1,
         }));
       }
-    });
+    };
 
-    socket.on('message:sent', (message) => {
+    const onSent = (message) => {
       setMessages((prev) => [...prev, message]);
       const receiverId = message.receiver?._id || message.receiver;
       setLastMessages((prev) => ({ ...prev, [receiverId]: message }));
-    });
+    };
 
-    // Handle calls
-    socket.on('call:incoming', ({ callerId, callType, offer }) => {
+    const onIncomingCall = ({ callerId, callType, offer }) => {
       const caller = users.find((u) => u._id === callerId);
-      const callerName = caller?.username || 'Inconnu';
+      const callerName = caller?.username || "Inconnu";
+
       setIncomingCall({ callerId, callType, offer, callerName });
+
       webrtc.setCallerId(callerId);
       webrtc.setCallType(callType);
-      webrtc.setCallStatus('receiving');
-    });
+      webrtc.setCallStatus("receiving");
+    };
 
-    socket.on('call:answered', webrtc.handleCallAnswered);
-    socket.on('call:ice-candidate', webrtc.handleICECandidate);
-
-    socket.on('call:ended', () => {
+    const onCallEnded = () => {
       webrtc.endCall();
-      showToast({ title: 'Appel terminé', type: 'info' });
-    });
+      showToast({ title: "Appel terminé", type: "info" });
+    };
 
-    socket.on('call:rejected', () => {
+    const onCallRejected = () => {
       webrtc.endCall();
-      showToast({ title: 'Appel refusé', message: 'L\'utilisateur a refusé l\'appel', type: 'error' });
-    });
+      showToast({
+        title: "Appel refusé",
+        message: "L'utilisateur a refusé l'appel",
+        type: "error",
+      });
+    };
 
-    socket.on('call:unavailable', () => {
+    const onCallUnavailable = () => {
       webrtc.endCall();
-      showToast({ title: 'Utilisateur indisponible', message: 'Impossible de joindre l\'utilisateur', type: 'warning' });
-    });
+      showToast({
+        title: "Utilisateur indisponible",
+        message: "Impossible de joindre l'utilisateur",
+        type: "warning",
+      });
+    };
+
+    socket.on("message:receive", onReceive);
+    socket.on("message:sent", onSent);
+
+    socket.on("call:incoming", onIncomingCall);
+    socket.on("call:answered", webrtc.handleCallAnswered);
+    socket.on("call:ice-candidate", webrtc.handleICECandidate);
+    socket.on("call:ended", onCallEnded);
+    socket.on("call:rejected", onCallRejected);
+    socket.on("call:unavailable", onCallUnavailable);
 
     return () => {
-      socket.off('message:receive');
-      socket.off('message:sent');
-      socket.off('call:incoming');
-      socket.off('call:answered');
-      socket.off('call:ice-candidate');
-      socket.off('call:ended');
-      socket.off('call:rejected');
-      socket.off('call:unavailable');
+      socket.off("message:receive", onReceive);
+      socket.off("message:sent", onSent);
+
+      socket.off("call:incoming", onIncomingCall);
+      socket.off("call:answered", webrtc.handleCallAnswered);
+      socket.off("call:ice-candidate", webrtc.handleICECandidate);
+      socket.off("call:ended", onCallEnded);
+      socket.off("call:rejected", onCallRejected);
+      socket.off("call:unavailable", onCallUnavailable);
     };
   }, [socket, selectedUser, users, webrtc, showToast]);
 
   const handleAcceptCall = useCallback(() => {
-    if (incomingCall) {
-      webrtc.answerCall(incomingCall.callerId, incomingCall.offer, incomingCall.callType);
-      const caller = users.find((u) => u._id === incomingCall.callerId);
-      if (caller) {
-        setSelectedUser(caller);
-        if (isMobile()) setShowSidebar(false);
-      }
-      setIncomingCall(null);
+    if (!incomingCall) return;
+
+    webrtc.answerCall(incomingCall.callerId, incomingCall.offer, incomingCall.callType);
+
+    const caller = users.find((u) => u._id === incomingCall.callerId);
+    if (caller) {
+      setSelectedUser(caller);
+      if (isMobile()) setShowSidebar(false);
     }
+
+    setIncomingCall(null);
   }, [incomingCall, webrtc, users]);
 
   const handleRejectCall = useCallback(() => {
-    if (incomingCall) {
-      webrtc.rejectCall(incomingCall.callerId);
-      setIncomingCall(null);
-    }
+    if (!incomingCall) return;
+    webrtc.rejectCall(incomingCall.callerId);
+    setIncomingCall(null);
   }, [incomingCall, webrtc]);
 
   return (
     <div className="chat-layout">
       {/* Sidebar */}
-      <div className={`sidebar ${showSidebar ? 'sidebar-visible' : 'sidebar-hidden'}`}>
+      <div className={`sidebar ${showSidebar ? "sidebar-visible" : "sidebar-hidden"}`}>
         <div className="sidebar-header">
           <div className="user-info">
-            <div className="avatar gradient-bg">{user?.username?.[0]?.toUpperCase()}</div>
-            <span className="username gradient-text">{user?.username}</span>
+            <div className="avatar gradient-bg">
+              {user?.username?.[0]?.toUpperCase() || "?"}
+            </div>
+            <span className="username gradient-text">{user?.username || "Utilisateur"}</span>
           </div>
-          <button onClick={logout} className="logout-btn" title="Déconnexion">⏻</button>
+          <button onClick={logout} className="logout-btn" title="Déconnexion">
+            ⏻
+          </button>
         </div>
 
         <UserList
@@ -164,7 +216,6 @@ const ChatLayout = () => {
           lastMessages={lastMessages}
         />
 
-        {/* Signature */}
         <a
           href="https://github.com/VoaybeDev"
           target="_blank"
@@ -176,7 +227,7 @@ const ChatLayout = () => {
       </div>
 
       {/* Main Content */}
-      <div className={`main-content ${!showSidebar ? 'main-full' : ''}`}>
+      <div className={`main-content ${!showSidebar ? "main-full" : ""}`}>
         {selectedUser ? (
           <ChatWindow
             selectedUser={selectedUser}
@@ -197,7 +248,7 @@ const ChatLayout = () => {
       </div>
 
       {/* Modals */}
-      {(webrtc.callStatus === 'calling' || webrtc.callStatus === 'in-call') && (
+      {(webrtc.callStatus === "calling" || webrtc.callStatus === "in-call") && (
         <CallModal
           callType={webrtc.callType}
           callStatus={webrtc.callStatus}

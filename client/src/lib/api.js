@@ -1,19 +1,20 @@
-// client/src/lib/api.js
 import axios from "axios";
 
-const isBrowser = typeof window !== "undefined";
+const baseURL =
+  process.env.REACT_APP_SERVER_URL?.replace(/\/$/, "") || "http://localhost:5000";
 
-const raw = process.env.REACT_APP_SERVER_URL || "";
-const origin = isBrowser ? window.location.origin : "";
-
-const SERVER = (raw || origin).replace(/\/+$/, "");
-const API_BASE = SERVER ? `${SERVER}/api` : "/api";
-
-export const api = axios.create({
-  baseURL: API_BASE,
+const api = axios.create({
+  baseURL: `${baseURL}/api`,
+  withCredentials: true, // OK même si tu n'utilises pas de cookies
   headers: { "Content-Type": "application/json" },
-  withCredentials: true,
-  timeout: 15000,
 });
 
-export const getApiBase = () => API_BASE;
+// Ajoute automatiquement Authorization: Bearer <token>
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("token");
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
+export default api;
+export { baseURL };
