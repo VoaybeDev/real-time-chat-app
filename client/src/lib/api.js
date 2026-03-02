@@ -1,14 +1,13 @@
 // client/src/lib/api.js
 import axios from "axios";
 
+const isBrowser = typeof window !== "undefined";
+
 const raw = process.env.REACT_APP_SERVER_URL || "";
-const origin = window.location.origin;
+const origin = isBrowser ? window.location.origin : "";
 
-// Nettoie les / à la fin
 const SERVER = (raw || origin).replace(/\/+$/, "");
-
-// IMPORTANT: l'API est sous /api
-const API_BASE = `${SERVER}/api`;
+const API_BASE = SERVER ? `${SERVER}/api` : "/api";
 
 export const api = axios.create({
   baseURL: API_BASE,
