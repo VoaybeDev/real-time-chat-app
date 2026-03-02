@@ -11,35 +11,60 @@ const messageRoutes = require("./routes/messages");
 
 const app = express();
 
-// -------- utils
+/**
+ * Nettoie une origin / url (enlève slash final)
+ */
+const normalizeOrigin = (value = "") => String(value).trim().replace(/\/+$/, "");
+
+/**
+ * Parse CLIENT_URL robuste :
+ * - accepte virgules, espaces, nouvelles lignes
+ * - nettoie les urls (trim + enlève slash final)
+ *
+ * Exemples valides dans HF Secrets :
+ * 1) "https://a.vercel.app,https://b.vercel.app"
+ * 2) "https://a.vercel.app https://b.vercel.app"
+ * 3) "https://a.vercel.app\nhttps://b.vercel.app"
+ */
 const parseOrigins = (originsStr) => {
   if (!originsStr) return [];
-  return originsStr
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((url) => url.replace(/\/$/, "")); // <-- enlève slash final
+  return String(originsStr)
+    .split(/[\s,]+/g) // <-- important : split sur espaces OU virgules
+    .map(normalizeOrigin)
+    .filter(Boolean);
 };
 
-const allowedOrigins = [
-  ...parseOrigins(process.env.CLIENT_URL),
-  "http://localhost:3000",
-];
+// --------------------
+// Allowed origins
+// --------------------
+const allowedOrigins = Array.from(
+  new Set([
+    ...parseOrigins(process.env.CLIENT_URL),
+    "http://localhost:3000",
+  ])
+);
 
-// -------- middlewares
+// --------------------
+// Middlewares
+// --------------------
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true }));
 
+// CORS Express (REST)
 app.use(
   cors({
-    origin: function (origin, callback) {
-      if (!origin) return callback(null, true); // curl/postman
-      const cleaned = origin.replace(/\/$/, "");
+    origin: (origin, callback) => {
+      // Autorise les appels sans Origin (curl/postman)
+      if (!origin) return callback(null, true);
+
+      const cleaned = normalizeOrigin(origin);
       if (allowedOrigins.includes(cleaned)) return callback(null, true);
 
       return callback(
         new Error(
-          `CORS blocked for origin: ${origin}. Allowed: ${allowedOrigins.join(", ")}`
+          `CORS blocked for origin: ${cleaned}. Allowed: ${allowedOrigins.join(
+            " | "
+          )}`
         )
       );
     },
@@ -49,46 +74,72 @@ app.use(
   })
 );
 
-// -------- health
+// Optionnel mais pratique pour les preflight
+app.options("*", cors());
+
+// --------------------
+// Health check
+// --------------------
 app.get("/health", (req, res) => {
   res.status(200).json({ ok: true, service: "chat-api" });
 });
 
-// -------- routes
+// --------------------
+// API routes
+// --------------------
 app.use("/api/auth", authRoutes);
 app.use("/api/messages", messageRoutes);
 
-// -------- error handler
+// --------------------
+// Error handler
+// --------------------
 app.use((err, req, res, next) => {
   console.error("SERVER ERROR:", err?.stack || err);
-  res.status(500).json({ message: err?.message || "Server error" });
+  res.status(500).json({
+    message: err?.message || "Server error",
+  });
 });
 
-// -------- server + socket
+// --------------------
+// Server + Socket.io
+// --------------------
 const server = http.createServer(app);
 
+// CORS Socket.io : même logique que REST (sinon tu auras des 400 sur /socket.io)
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins,
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      const cleaned = normalizeOrigin(origin);
+      if (allowedOrigins.includes(cleaned)) return callback(null, true);
+
+      return callback(new Error(`Socket CORS blocked for origin: ${cleaned}`));
+    },
     credentials: true,
     methods: ["GET", "POST"],
   },
-  transports: ["polling", "websocket"],
+  transports: ["polling", "websocket"], // ok pour HF proxies
 });
 
 io.on("connection", (socket) => {
   console.log("Socket connected:", socket.id);
 
-  socket.on("joinRoom", (roomId) => socket.join(roomId));
+  socket.on("joinRoom", (roomId) => {
+    if (roomId) socket.join(roomId);
+  });
 
   socket.on("sendMessage", (payload) => {
     if (payload?.roomId) io.to(payload.roomId).emit("newMessage", payload);
   });
 
-  socket.on("disconnect", () => console.log("Socket disconnected:", socket.id));
+  socket.on("disconnect", () => {
+    console.log("Socket disconnected:", socket.id);
+  });
 });
 
-// -------- mongo + start
+// --------------------
+// Mongo + Start
+// --------------------
 const PORT = process.env.PORT || 5000;
 
 (async () => {
@@ -97,15 +148,21 @@ const PORT = process.env.PORT || 5000;
       throw new Error("MONGO_URI manquant dans les variables d'environnement.");
     }
 
-    // IMPORTANT : si Mongo est inaccessible, on veut une erreur CLAIRE, pas un buffering
+    // Si Mongo est inaccessible -> erreur claire (pas buffering)
     mongoose.set("bufferCommands", false);
 
-    mongoose.connection.on("connected", () => console.log("Mongo event: connected ✅"));
-    mongoose.connection.on("error", (e) => console.error("Mongo event: error ❌", e));
-    mongoose.connection.on("disconnected", () => console.log("Mongo event: disconnected ⚠️"));
+    mongoose.connection.on("connected", () =>
+      console.log("Mongo event: connected ✅")
+    );
+    mongoose.connection.on("error", (e) =>
+      console.error("Mongo event: error ❌", e)
+    );
+    mongoose.connection.on("disconnected", () =>
+      console.log("Mongo event: disconnected ⚠️")
+    );
 
     await mongoose.connect(process.env.MONGO_URI, {
-      serverSelectionTimeoutMS: 15000, // donne une vraie erreur si Atlas est bloqué
+      serverSelectionTimeoutMS: 15000,
     });
 
     console.log("MongoDB connected ✅");
