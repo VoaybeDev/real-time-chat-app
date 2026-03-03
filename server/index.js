@@ -12,24 +12,33 @@ const messageRoutes = require("./routes/messages");
 const app = express();
 
 /* ===============================
-   ORIGIN PARSER ROBUSTE
+   ORIGIN CHECKER (wildcard vercel.app)
 ================================ */
 const normalize = (v = "") => String(v).trim().replace(/\/+$/, "");
 
 const parseOrigins = (str) => {
   if (!str) return [];
   return str
-    .split(/[\s,]+/g) // espace OU virgule OU retour ligne
+    .split(/[\s,]+/g)
     .map(normalize)
     .filter(Boolean);
 };
 
-const allowedOrigins = [
+const staticOrigins = [
   ...parseOrigins(process.env.CLIENT_URL),
   "http://localhost:3000",
 ];
 
-console.log("Allowed origins:", allowedOrigins);
+const isOriginAllowed = (origin) => {
+  if (!origin) return true;
+  const cleaned = normalize(origin);
+  // Accepte toutes les URLs *.vercel.app et les origines statiques
+  if (/^https:\/\/[a-z0-9-]+\.vercel\.app$/.test(cleaned)) return true;
+  return staticOrigins.includes(cleaned);
+};
+
+console.log("===== Application Startup at", new Date().toISOString(), "=====");
+console.log("Static allowed origins:", staticOrigins);
 
 /* ===============================
    MIDDLEWARES
@@ -37,31 +46,29 @@ console.log("Allowed origins:", allowedOrigins);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin) return callback(null, true);
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (isOriginAllowed(origin)) {
+      return callback(null, true);
+    }
+    console.error("CORS blocked:", origin);
+    return callback(new Error("CORS bloqué pour origin: " + origin));
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+};
 
-      const cleaned = normalize(origin);
-
-      if (allowedOrigins.includes(cleaned)) {
-        return callback(null, true);
-      }
-
-      console.error("CORS blocked:", cleaned);
-      return callback(new Error("CORS bloqué pour origin: " + cleaned));
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
-
-app.options("*", cors());
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 
 /* ===============================
    ROUTES
 ================================ */
+app.get("/", (req, res) => {
+  res.json({ status: "API en ligne ✅" });
+});
+
 app.get("/health", (req, res) => {
   res.json({ ok: true });
 });
@@ -84,8 +91,14 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins,
+    origin: (origin, callback) => {
+      if (isOriginAllowed(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error("Socket CORS bloqué: " + origin));
+    },
     credentials: true,
+    methods: ["GET", "POST"],
   },
   transports: ["polling", "websocket"],
 });
