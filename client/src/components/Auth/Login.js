@@ -1,6 +1,7 @@
 // client/src/components/Auth/Login.js
 import { useState } from "react";
 import { useAuth } from "../../context/AuthContext";
+import api from "../../lib/api";
 import "./Auth.css";
 
 const Login = ({ onSwitch }) => {
@@ -18,7 +19,12 @@ const Login = ({ onSwitch }) => {
     setLoading(true);
 
     try {
-      await login(form.email.trim(), form.password);
+      // Appel API d'abord, PUIS on appelle login() avec les données reçues
+      const { data } = await api.post("/auth/login", {
+        email: form.email.trim(),
+        password: form.password,
+      });
+      login(data.user, data.token);
     } catch (err) {
       setError(err?.response?.data?.message || "Erreur de connexion");
     } finally {
