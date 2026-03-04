@@ -164,7 +164,6 @@ export const useWebRTC = (socket) => {
     try {
       await pcRef.current?.setRemoteDescription(new RTCSessionDescription(answer));
       setCallStatus('in-call');
-        setCallType(type);
     } catch (err) {
       console.error('Erreur set remote description:', err);
     }
