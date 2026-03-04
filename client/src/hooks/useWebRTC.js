@@ -140,6 +140,7 @@ export const useWebRTC = (socket) => {
     async (incomingCallerId, offer, type = 'audio') => {
       try {
         setCallStatus('in-call');
+        setCallType(type);
         setTargetId(incomingCallerId);
 
         const stream = await getLocalStream(type);
@@ -163,6 +164,7 @@ export const useWebRTC = (socket) => {
     try {
       await pcRef.current?.setRemoteDescription(new RTCSessionDescription(answer));
       setCallStatus('in-call');
+        setCallType(type);
     } catch (err) {
       console.error('Erreur set remote description:', err);
     }
