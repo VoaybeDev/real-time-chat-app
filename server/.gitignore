@@ -1,0 +1,12 @@
+uploads/
+server_backup/
+.env
+node_modules/
+package-lock.json
+*.webm
+*.mp4
+*.jpg
+*.jpeg
+*.png
+*.pdf
+*.docx
